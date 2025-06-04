@@ -1,6 +1,5 @@
 """stage view tests"""
-
-from collections.abc import Callable
+from typing import Callable
 
 from django.test import RequestFactory, TestCase
 
@@ -22,9 +21,8 @@ def view_tester_factory(view_class: type[StageView]) -> Callable:
 
     def tester(self: TestViews):
         model_class = view_class(self.exec)
-        if not hasattr(model_class, "dispatch"):
-            self.assertIsNotNone(model_class.post)
-            self.assertIsNotNone(model_class.get)
+        self.assertIsNotNone(model_class.post)
+        self.assertIsNotNone(model_class.get)
 
     return tester
 

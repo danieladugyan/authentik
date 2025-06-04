@@ -2,6 +2,9 @@ package direct
 
 import (
 	"context"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"beryju.io/ldap"
 	"github.com/getsentry/sentry-go"
@@ -13,6 +16,10 @@ import (
 	"goauthentik.io/internal/outpost/ldap/metrics"
 )
 
+const CodePasswordSeparator = ";"
+
+var alphaNum = regexp.MustCompile(`^[a-zA-Z0-9]*$`)
+
 func (db *DirectBinder) Bind(username string, req *bind.Request) (ldap.LDAPResultCode, error) {
 	fe := flow.NewFlowExecutor(req.Context(), db.si.GetAuthenticationFlowSlug(), db.si.GetAPIClient().GetConfig(), log.Fields{
 		"bindDN":    req.BindDN,
@@ -23,7 +30,8 @@ func (db *DirectBinder) Bind(username string, req *bind.Request) (ldap.LDAPResul
 	fe.Params.Add("goauthentik.io/outpost/ldap", "true")
 
 	fe.Answers[flow.StageIdentification] = username
-	fe.SetSecrets(req.BindPW, db.si.GetMFASupport())
+	fe.Answers[flow.StagePassword] = req.BindPW
+	db.CheckPasswordMFA(fe)
 
 	passed, err := fe.Execute()
 	flags := flags.UserFlags{
@@ -58,10 +66,8 @@ func (db *DirectBinder) Bind(username string, req *bind.Request) (ldap.LDAPResul
 		return ldap.LDAPResultInvalidCredentials, nil
 	}
 
-	access, _, err := fe.ApiClient().OutpostsApi.OutpostsLdapAccessCheck(
-		req.Context(), db.si.GetProviderID(),
-	).AppSlug(db.si.GetAppSlug()).Execute()
-	if !access.Access.Passing {
+	access, err := fe.CheckApplicationAccess(db.si.GetAppSlug())
+	if !access {
 		req.Log().Info("Access denied for user")
 		metrics.RequestsRejected.With(prometheus.Labels{
 			"outpost_name": db.si.GetOutpostName(),
@@ -95,12 +101,51 @@ func (db *DirectBinder) Bind(username string, req *bind.Request) (ldap.LDAPResul
 		req.Log().WithError(err).Warning("failed to get user info")
 		return ldap.LDAPResultOperationsError, nil
 	}
+	cs := db.SearchAccessCheck(userInfo.User)
 	flags.UserPk = userInfo.User.Pk
-	flags.CanSearch = access.GetHasSearchPermission()
+	flags.CanSearch = cs != nil
 	db.si.SetFlags(req.BindDN, &flags)
 	if flags.CanSearch {
-		req.Log().Debug("Allowed access to search")
+		req.Log().WithField("group", cs).Info("Allowed access to search")
 	}
 	uisp.Finish()
 	return ldap.LDAPResultSuccess, nil
+}
+
+func (db *DirectBinder) CheckPasswordMFA(fe *flow.FlowExecutor) {
+	if !db.si.GetMFASupport() {
+		return
+	}
+	password := fe.Answers[flow.StagePassword]
+	// We already have an authenticator answer
+	if fe.Answers[flow.StageAuthenticatorValidate] != "" {
+		return
+	}
+	// password doesn't contain the separator
+	if !strings.Contains(password, CodePasswordSeparator) {
+		return
+	}
+	// password ends with the separator, so it won't contain an answer
+	if strings.HasSuffix(password, CodePasswordSeparator) {
+		return
+	}
+	idx := strings.LastIndex(password, CodePasswordSeparator)
+	authenticator := password[idx+1:]
+	// Authenticator is either 6 chars (totp code) or 8 chars (long totp or static)
+	if len(authenticator) == 6 {
+		// authenticator answer isn't purely numerical, so won't be value
+		if _, err := strconv.Atoi(authenticator); err != nil {
+			return
+		}
+	} else if len(authenticator) == 8 {
+		// 8 chars can be a long totp or static token, so it needs to be alphanumerical
+		if !alphaNum.MatchString(authenticator) {
+			return
+		}
+	} else {
+		// Any other length, doesn't contain an answer
+		return
+	}
+	fe.Answers[flow.StagePassword] = password[:idx]
+	fe.Answers[flow.StageAuthenticatorValidate] = authenticator
 }

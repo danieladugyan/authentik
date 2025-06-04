@@ -1,4 +1,3 @@
-import { parseAPIResponseError, pluckErrorDetail } from "@goauthentik/common/errors/network";
 import { MessageLevel } from "@goauthentik/common/messages";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import { DeleteForm } from "@goauthentik/elements/forms/DeleteForm";
@@ -17,14 +16,10 @@ export class UserActiveForm extends DeleteForm {
         });
     }
 
-    onError(error: unknown): Promise<void> {
-        return parseAPIResponseError(error).then((parsedError) => {
-            showMessage({
-                message: msg(
-                    str`Failed to update ${this.objectLabel}: ${pluckErrorDetail(parsedError)}`,
-                ),
-                level: MessageLevel.error,
-            });
+    onError(e: Error): void {
+        showMessage({
+            message: msg(str`Failed to update ${this.objectLabel}: ${e.toString()}`),
+            level: MessageLevel.error,
         });
     }
 
@@ -61,11 +56,5 @@ export class UserActiveForm extends DeleteForm {
                     ${msg("Cancel")}
                 </ak-spinner-button>
             </footer>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-active-form": UserActiveForm;
     }
 }

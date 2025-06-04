@@ -3,17 +3,16 @@ import "@goauthentik/admin/outposts/OutpostDeploymentModal";
 import "@goauthentik/admin/outposts/OutpostForm";
 import "@goauthentik/admin/outposts/OutpostHealth";
 import "@goauthentik/admin/outposts/OutpostHealthSimple";
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { PFSize } from "@goauthentik/common/enums.js";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { PFColor } from "@goauthentik/elements/Label";
+import { PFSize } from "@goauthentik/elements/Spinner";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg, str } from "@lit/localize";
 import { CSSResult } from "lit";
@@ -23,13 +22,7 @@ import { ifDefined } from "lit/directives/if-defined.js";
 
 import PFDescriptionList from "@patternfly/patternfly/components/DescriptionList/description-list.css";
 
-import {
-    Outpost,
-    OutpostHealth,
-    OutpostTypeEnum,
-    OutpostsApi,
-    RbacPermissionsAssignedByUsersListModelEnum,
-} from "@goauthentik/api";
+import { Outpost, OutpostHealth, OutpostTypeEnum, OutpostsApi } from "@goauthentik/api";
 
 export function TypeToLabel(type?: OutpostTypeEnum): string {
     if (!type) return "";
@@ -40,8 +33,6 @@ export function TypeToLabel(type?: OutpostTypeEnum): string {
             return msg("LDAP");
         case OutpostTypeEnum.Radius:
             return msg("Radius");
-        case OutpostTypeEnum.Rac:
-            return msg("RAC");
         case OutpostTypeEnum.UnknownDefaultOpenApi:
             return msg("Unknown type");
     }
@@ -66,11 +57,14 @@ export class OutpostListPage extends TablePage<Outpost> {
         return true;
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<Outpost>> {
-        const outposts = await new OutpostsApi(DEFAULT_CONFIG).outpostsInstancesList(
-            await this.defaultEndpointConfig(),
-        );
-        await Promise.all(
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Outpost>> {
+        const outposts = await new OutpostsApi(DEFAULT_CONFIG).outpostsInstancesList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
+        Promise.all(
             outposts.results.map((outpost) => {
                 return new OutpostsApi(DEFAULT_CONFIG)
                     .outpostsInstancesHealthList({
@@ -103,7 +97,6 @@ export class OutpostListPage extends TablePage<Outpost> {
     }
 
     checkbox = true;
-    clearOnRefresh = true;
 
     @property()
     order = "name";
@@ -142,16 +135,9 @@ export class OutpostListPage extends TablePage<Outpost> {
                     >
                     </ak-outpost-form>
                     <button slot="trigger" class="pf-c-button pf-m-plain">
-                        <pf-tooltip position="top" content=${msg("Edit")}>
-                            <i class="fas fa-edit"></i>
-                        </pf-tooltip>
+                        <i class="fas fa-edit"></i>
                     </button>
                 </ak-forms-modal>
-                <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikOutpostsOutpost}
-                    objectPk=${item.pk}
-                >
-                </ak-rbac-object-permission-modal>
                 ${item.managed !== "goauthentik.io/outposts/embedded"
                     ? html`<ak-outpost-deployment-modal .outpost=${item} size=${PFSize.Medium}>
                           <button slot="trigger" class="pf-c-button pf-m-tertiary">
@@ -216,11 +202,5 @@ export class OutpostListPage extends TablePage<Outpost> {
                 <button slot="trigger" class="pf-c-button pf-m-primary">${msg("Create")}</button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-outpost-list": OutpostListPage;
     }
 }

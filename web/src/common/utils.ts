@@ -1,3 +1,5 @@
+import { SentryIgnoredError } from "@goauthentik/common/errors";
+
 import { CSSResult, css } from "lit";
 
 export function getCookie(name: string): string {
@@ -14,6 +16,19 @@ export function getCookie(name: string): string {
         }
     }
     return cookieValue;
+}
+
+export function convertToSlug(text: string): string {
+    return text
+        .toLowerCase()
+        .replace(/ /g, "-")
+        .replace(/[^\w-]+/g, "");
+}
+
+export function convertToTitle(text: string): string {
+    return text.replace(/\w\S*/g, function (txt) {
+        return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+    });
 }
 
 /**
@@ -39,13 +54,6 @@ export function camelToSnake(key: string): string {
     return result.split(" ").join("_").toLowerCase();
 }
 
-const capitalize = (key: string) => (key.length === 0 ? "" : key[0].toUpperCase() + key.slice(1));
-
-export function snakeToCamel(key: string) {
-    const [start, ...rest] = key.split("_");
-    return [start, ...rest.map(capitalize)].join("");
-}
-
 export function groupBy<T>(objects: T[], callback: (obj: T) => string): Array<[string, T[]]> {
     const m = new Map<string, T[]>();
     objects.forEach((obj) => {
@@ -57,6 +65,24 @@ export function groupBy<T>(objects: T[], callback: (obj: T) => string): Array<[s
         tProviders.push(obj);
     });
     return Array.from(m).sort();
+}
+
+export function first<T>(...args: Array<T | undefined | null>): T {
+    for (let index = 0; index < args.length; index++) {
+        const element = args[index];
+        if (element !== undefined && element !== null) {
+            return element;
+        }
+    }
+    throw new SentryIgnoredError(`No compatible arg given: ${args}`);
+}
+
+export function hexEncode(buf: Uint8Array): string {
+    return Array.from(buf)
+        .map(function (x) {
+            return ("0" + x.toString(16)).substr(-2);
+        })
+        .join("");
 }
 
 // Taken from python's string module
@@ -71,13 +97,25 @@ export const punctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 export function randomString(len: number, charset: string): string {
     const chars = [];
     const array = new Uint8Array(len);
-
-    crypto.getRandomValues(array);
-
+    self.crypto.getRandomValues(array);
     for (let index = 0; index < len; index++) {
         chars.push(charset[Math.floor(charset.length * (array[index] / Math.pow(2, 8)))]);
     }
     return chars.join("");
+}
+
+export function dateTimeLocal(date: Date): string {
+    // So for some reason, the datetime-local input field requires ISO Datetime as value
+    // But the standard javascript date.toISOString() returns everything with seconds and
+    // milliseconds, which the input field doesn't like (on chrome, on firefox its fine)
+    // On chrome, setting .valueAsNumber works, but that causes an error on firefox, so go
+    // figure.
+    // Additionally, toISOString always returns the date without timezone, which we would like
+    // to include for better usability
+    const tzOffset = new Date().getTimezoneOffset() * 60000; //offset in milliseconds
+    const localISOTime = new Date(date.getTime() - tzOffset).toISOString().slice(0, -1);
+    const parts = localISOTime.split(":");
+    return `${parts[0]}:${parts[1]}`;
 }
 
 // Lit is extremely well-typed with regard to CSS, and Storybook's `build` does not currently have a
@@ -92,7 +130,7 @@ const isCSSResult = (v: unknown): v is CSSResult =>
 
 // prettier-ignore
 export const _adaptCSS = (sheet: AdaptableStylesheet): CSSStyleSheet =>
-    (typeof sheet === "string" ? css([sheet] as unknown as TemplateStringsArray, []).styleSheet
+    (typeof sheet === "string" ? css([sheet] as unknown as TemplateStringsArray, ...[]).styleSheet
         : isCSSResult(sheet) ? sheet.styleSheet
         : sheet) as CSSStyleSheet;
 

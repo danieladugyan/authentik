@@ -1,5 +1,4 @@
 """Test time utils"""
-
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError

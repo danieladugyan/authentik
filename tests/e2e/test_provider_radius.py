@@ -1,9 +1,11 @@
 """Radius e2e tests"""
-
 from dataclasses import asdict
+from sys import platform
 from time import sleep
-from unittest.mock import patch
+from unittest.case import skipUnless
 
+from docker.client import DockerClient, from_env
+from docker.models.containers import Container
 from pyrad.client import Client
 from pyrad.dictionary import Dictionary
 from pyrad.packet import AccessAccept, AccessReject, AccessRequest
@@ -13,28 +15,38 @@ from authentik.core.models import Application, User
 from authentik.flows.models import Flow
 from authentik.lib.generators import generate_id, generate_key
 from authentik.outposts.models import Outpost, OutpostConfig, OutpostType
-from authentik.outposts.tests.test_ws import patched__get_ct_cached
 from authentik.providers.radius.models import RadiusProvider
 from tests.e2e.utils import SeleniumTestCase, retry
 
 
-@patch("guardian.shortcuts._get_ct_cached", patched__get_ct_cached)
+@skipUnless(platform.startswith("linux"), "requires local docker")
 class TestProviderRadius(SeleniumTestCase):
     """Radius Outpost e2e tests"""
+
+    radius_container: Container
 
     def setUp(self):
         super().setUp()
         self.shared_secret = generate_key()
 
-    def start_radius(self, outpost: Outpost):
+    def tearDown(self) -> None:
+        super().tearDown()
+        self.output_container_logs(self.radius_container)
+        self.radius_container.kill()
+
+    def start_radius(self, outpost: Outpost) -> Container:
         """Start radius container based on outpost created"""
-        self.run_container(
+        client: DockerClient = from_env()
+        container = client.containers.run(
             image=self.get_container_image("ghcr.io/goauthentik/dev-radius"),
-            ports={"1812/udp": "1812/udp"},
+            detach=True,
+            network_mode="host",
             environment={
+                "AUTHENTIK_HOST": self.live_server_url,
                 "AUTHENTIK_TOKEN": outpost.token.key,
             },
         )
+        return container
 
     def _prepare(self) -> User:
         """prepare user, provider, app and container"""
@@ -52,11 +64,11 @@ class TestProviderRadius(SeleniumTestCase):
         )
         outpost.providers.add(radius)
 
-        self.start_radius(outpost)
+        self.radius_container = self.start_radius(outpost)
 
         # Wait until outpost healthcheck succeeds
         healthcheck_retries = 0
-        while healthcheck_retries < 50:  # noqa: PLR2004
+        while healthcheck_retries < 50:
             if len(outpost.state) > 0:
                 state = outpost.state[0]
                 if state.last_seen:
@@ -77,7 +89,7 @@ class TestProviderRadius(SeleniumTestCase):
         srv = Client(
             server="localhost",
             secret=self.shared_secret.encode(),
-            dict=Dictionary("authentik/providers/radius/dictionaries/dictionary"),
+            dict=Dictionary("tests/radius-dictionary"),
         )
 
         req = srv.CreateAuthPacket(
@@ -99,7 +111,7 @@ class TestProviderRadius(SeleniumTestCase):
         srv = Client(
             server="localhost",
             secret=self.shared_secret.encode(),
-            dict=Dictionary("authentik/providers/radius/dictionaries/dictionary"),
+            dict=Dictionary("tests/radius-dictionary"),
         )
 
         req = srv.CreateAuthPacket(

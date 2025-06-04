@@ -6,7 +6,6 @@ It exposes the ASGI callable as a module-level variable named ``application``.
 For more information on this file, see
 https://docs.djangoproject.com/en/3.0/howto/deployment/asgi/
 """
-
 import django
 from channels.routing import ProtocolTypeRouter, URLRouter
 from defusedxml import defuse_stdlib
@@ -18,8 +17,8 @@ from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
 defuse_stdlib()
 django.setup()
 
-
-from authentik.root import websocket  # noqa
+# pylint: disable=wrong-import-position
+from authentik.root import websocket  # noqa  # isort:skip
 
 
 class LifespanApp:
@@ -60,18 +59,7 @@ class RouteNotFoundMiddleware:
                 raise exc
 
 
-class AuthentikAsgi(SentryAsgiMiddleware):
-    """Root ASGI App wrapper"""
-
-    def call_startup(self):
-        from authentik.root.signals import post_startup, pre_startup, startup
-
-        pre_startup.send(sender=self)
-        startup.send(sender=self)
-        post_startup.send(sender=self)
-
-
-application = AuthentikAsgi(
+application = SentryAsgiMiddleware(
     ProtocolTypeRouter(
         {
             "http": get_asgi_application(),

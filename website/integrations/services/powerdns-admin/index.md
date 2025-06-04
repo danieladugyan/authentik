@@ -1,34 +1,32 @@
 ---
-title: Integrate with PowerDNS-Admin
-sidebar_label: PowerDNS-Admin
-support_level: community
+title: PowerDNS-Admin
 ---
+
+<span class="badge badge--secondary">Support level: Community</span>
 
 ## What is PowerDNS-Admin
 
-> A PowerDNS web interface with advanced features.
->
-> -- https://github.com/ngoduykhanh/PowerDNS-Admin
+From https://github.com/ngoduykhanh/PowerDNS-Admin
+
+:::note
+A PowerDNS web interface with advanced features.
+:::
 
 ## Preparation
 
-The following placeholders are used in this guide:
+The following placeholders will be used:
 
-- `pdns-admin.company` is the FQDN of the PowerDNS-Admin installation.
-- `authentik.company` is the FQDN of the authentik installation.
-
-:::note
-This documentation lists only the settings that you need to change from their default values. Be aware that any changes other than those explicitly mentioned in this guide could cause issues accessing your application.
-:::
+-   `pdns-admin.company` is the FQDN of the PowerDNS-Admin install.
+-   `authentik.company` is the FQDN of the authentik install.
 
 Create a SAML provider with the following parameters:
 
-- ACS URL: `https://pdns-admin.company/saml/authorized`
-- Issuer: `https://authentik.company`
-- Service Provider Binding: `Post`
-- Audience: `pdns-admin`
-- Signing Keypair: Select any certificate you have.
-- Property mappings: Select all Managed mappings.
+-   ACS URL: `https://pdns-admin.company/saml/authorized`
+-   Issuer: `https://authentik.company`
+-   Service Provider Binding: `Post`
+-   Audience: `pdns-admin`
+-   Signing Keypair: Select any certificate you have.
+-   Property mappings: Select all Managed mappings.
 
 You can of course use a custom signing certificate, and adjust durations.
 
@@ -64,9 +62,10 @@ You must mount the certificate selected in authentik as a file in the Docker con
 ### docker-compose
 
 ```yaml
+version: "3.3"
 services:
     powerdns-admin:
-        image: powerdnsadmin/pda-legacy:latest
+        image: ngoduykhanh/powerdns-admin:latest
         restart: always
         ports:
             - 80:80

@@ -1,8 +1,8 @@
+import { IntentToLabel } from "@goauthentik/admin/tokens/TokenListPage";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { intentToLabel } from "@goauthentik/common/labels";
-import { formatElapsedTime } from "@goauthentik/common/temporal";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { me } from "@goauthentik/common/users";
-import "@goauthentik/components/ak-status-label";
+import { PFColor } from "@goauthentik/elements/Label";
 import "@goauthentik/elements/buttons/Dropdown";
 import "@goauthentik/elements/buttons/ModalButton";
 import "@goauthentik/elements/buttons/TokenCopyButton";
@@ -11,7 +11,6 @@ import "@goauthentik/elements/forms/ModalForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { Table, TableColumn } from "@goauthentik/elements/table/Table";
 import "@goauthentik/user/user-settings/tokens/UserTokenForm";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
 import { CSSResult, TemplateResult, html } from "lit";
@@ -29,14 +28,16 @@ export class UserTokenList extends Table<Token> {
 
     expandable = true;
     checkbox = true;
-    clearOnRefresh = true;
 
     @property()
     order = "expires";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Token>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Token>> {
         return new CoreApi(DEFAULT_CONFIG).coreTokensList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
             managed: "",
             // The user might have access to other tokens that aren't for their user
             // but only show tokens for their user here
@@ -95,7 +96,9 @@ export class UserTokenList extends Table<Token> {
                             </dt>
                             <dd class="pf-c-description-list__description">
                                 <div class="pf-c-description-list__text">
-                                    <ak-status-label ?good=${item.expiring}></ak-status-label>
+                                    <ak-label color=${item.expiring ? PFColor.Green : PFColor.Red}>
+                                        ${item.expiring ? msg("Yes") : msg("No")}
+                                    </ak-label>
                                 </div>
                             </dd>
                         </div>
@@ -105,14 +108,7 @@ export class UserTokenList extends Table<Token> {
                             </dt>
                             <dd class="pf-c-description-list__description">
                                 <div class="pf-c-description-list__text">
-                                    ${item.expiring
-                                        ? html`<pf-tooltip
-                                              position="top"
-                                              .content=${item.expires?.toLocaleString()}
-                                          >
-                                              ${formatElapsedTime(item.expires!)}
-                                          </pf-tooltip>`
-                                        : msg("-")}
+                                    ${item.expiring ? item.expires?.toLocaleString() : msg("-")}
                                 </div>
                             </dd>
                         </div>
@@ -122,7 +118,7 @@ export class UserTokenList extends Table<Token> {
                             </dt>
                             <dd class="pf-c-description-list__description">
                                 <div class="pf-c-description-list__text">
-                                    ${intentToLabel(item.intent ?? IntentEnum.Api)}
+                                    ${IntentToLabel(item.intent || IntentEnum.Api)}
                                 </div>
                             </dd>
                         </div>
@@ -151,38 +147,24 @@ export class UserTokenList extends Table<Token> {
 
     row(item: Token): TemplateResult[] {
         return [
-            html`<span class="pf-m-monospace">${item.identifier}</span>`,
+            html`${item.identifier}`,
             html`
                 <ak-forms-modal>
                     <span slot="submit"> ${msg("Update")} </span>
                     <span slot="header"> ${msg("Update Token")} </span>
-                    <ak-user-token-form
-                        intent=${item.intent ?? IntentEnum.Api}
-                        slot="form"
-                        .instancePk=${item.identifier}
-                    >
+                    <ak-user-token-form slot="form" .instancePk=${item.identifier}>
                     </ak-user-token-form>
                     <button slot="trigger" class="pf-c-button pf-m-plain">
-                        <pf-tooltip position="top" content=${msg("Edit")}>
-                            <i class="fas fa-edit"></i>
-                        </pf-tooltip>
+                        <i class="fas fa-edit"></i>
                     </button>
                 </ak-forms-modal>
                 <ak-token-copy-button
                     class="pf-c-button pf-m-plain"
                     identifier="${item.identifier}"
                 >
-                    <pf-tooltip position="top" content=${msg("Copy token")}>
-                        <i class="fas fa-copy"></i>
-                    </pf-tooltip>
+                    <i class="fas fa-copy"></i>
                 </ak-token-copy-button>
             `,
         ];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-token-list": UserTokenList;
     }
 }

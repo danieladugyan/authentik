@@ -1,5 +1,4 @@
 """Time utilities"""
-
 import datetime
 from hashlib import sha256
 from random import randrange, seed

@@ -1,5 +1,4 @@
 """recovery views"""
-
 from django.contrib import messages
 from django.contrib.auth import login
 from django.http import Http404, HttpRequest, HttpResponse

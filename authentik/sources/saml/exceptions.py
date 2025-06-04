@@ -1,5 +1,4 @@
 """authentik saml source exceptions"""
-
 from authentik.lib.sentry import SentryIgnoredException
 
 
@@ -17,10 +16,6 @@ class UnsupportedNameIDFormat(SAMLException):
 
 class MismatchedRequestID(SAMLException):
     """Exception raised when the returned request ID doesn't match the saved ID."""
-
-
-class InvalidEncryption(SAMLException):
-    """Encryption of XML Object is either missing or invalid"""
 
 
 class InvalidSignature(SAMLException):

@@ -1,5 +1,4 @@
 """dummy stage models"""
-
 from django.db import models
 from django.utils.translation import gettext as _
 from django.views import View
@@ -22,7 +21,7 @@ class DummyStage(Stage):
         return DummyStageSerializer
 
     @property
-    def view(self) -> type[View]:
+    def type(self) -> type[View]:
         from authentik.stages.dummy.stage import DummyStageView
 
         return DummyStageView

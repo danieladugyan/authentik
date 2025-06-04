@@ -20,17 +20,18 @@ class Migration(BaseMigration):
 
     def upgrade(self, migrate=False):
         self.cur.execute(SQL_STATEMENT)
-        with self.con.transaction():
-            if migrate:
-                # If we already have migrations in the database, assume we're upgrading an existing install
-                # and set the install id to the secret key
-                self.cur.execute(
-                    "INSERT INTO authentik_install_id (id) VALUES (%s)", (CONFIG.get("secret_key"),)
-                )
-            else:
-                # Otherwise assume a new install, generate an install ID based on a UUID
-                install_id = str(uuid4())
-                self.cur.execute("INSERT INTO authentik_install_id (id) VALUES (%s)", (install_id,))
+        self.con.commit()
+        if migrate:
+            # If we already have migrations in the database, assume we're upgrading an existing install
+            # and set the install id to the secret key
+            self.cur.execute(
+                "INSERT INTO authentik_install_id (id) VALUES (%s)", (CONFIG.y("secret_key"),)
+            )
+        else:
+            # Otherwise assume a new install, generate an install ID based on a UUID
+            install_id = str(uuid4())
+            self.cur.execute("INSERT INTO authentik_install_id (id) VALUES (%s)", (install_id,))
+        self.con.commit()
 
     def run(self):
         self.cur.execute(

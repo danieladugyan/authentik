@@ -1,8 +1,6 @@
 """SAML Identity Provider Metadata Processor"""
-
-from collections.abc import Iterator
 from hashlib import sha256
-from typing import Optional
+from typing import Iterator, Optional
 
 import xmlsec  # nosec
 from django.http import HttpRequest
@@ -32,7 +30,7 @@ class MetadataProcessor:
 
     provider: SAMLProvider
     http_request: HttpRequest
-    force_binding: str | None
+    force_binding: Optional[str]
 
     def __init__(self, provider: SAMLProvider, request: HttpRequest):
         self.provider = provider
@@ -40,8 +38,7 @@ class MetadataProcessor:
         self.force_binding = None
         self.xml_id = "_" + sha256(f"{provider.name}-{provider.pk}".encode("ascii")).hexdigest()
 
-    # Using type unions doesn't work with cython types (which is what lxml is)
-    def get_signing_key_descriptor(self) -> Optional[Element]:  # noqa: UP007
+    def get_signing_key_descriptor(self) -> Optional[Element]:
         """Get Signing KeyDescriptor, if enabled for the provider"""
         if not self.provider.signing_kp:
             return None
@@ -126,7 +123,7 @@ class MetadataProcessor:
             entity_descriptor,
             xmlsec.constants.TransformExclC14N,
             sign_algorithm_transform,
-            ns=xmlsec.constants.DSigNs,
+            ns="ds",  # type: ignore
         )
         entity_descriptor.append(signature)
 
@@ -174,8 +171,6 @@ class MetadataProcessor:
             entity_descriptor, f"{{{NS_SAML_METADATA}}}IDPSSODescriptor"
         )
         idp_sso_descriptor.attrib["protocolSupportEnumeration"] = NS_SAML_PROTOCOL
-        if self.provider.verification_kp:
-            idp_sso_descriptor.attrib["WantAuthnRequestsSigned"] = "true"
 
         signing_descriptor = self.get_signing_key_descriptor()
         if signing_descriptor is not None:

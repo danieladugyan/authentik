@@ -1,10 +1,8 @@
 """Test validator stage"""
-
 from unittest.mock import MagicMock, patch
 
 from django.test.client import RequestFactory
 from django.urls.base import reverse
-from django.utils.timezone import now
 
 from authentik.core.tests.utils import create_test_admin_user, create_test_flow
 from authentik.flows.models import FlowDesignation, FlowStageBinding, NotConfiguredAction
@@ -13,8 +11,6 @@ from authentik.flows.tests import FlowTestCase
 from authentik.flows.views.executor import SESSION_KEY_PLAN
 from authentik.lib.generators import generate_id, generate_key
 from authentik.stages.authenticator_duo.models import AuthenticatorDuoStage, DuoDevice
-from authentik.stages.authenticator_static.models import AuthenticatorStaticStage
-from authentik.stages.authenticator_totp.models import AuthenticatorTOTPStage, TOTPDigits
 from authentik.stages.authenticator_validate.api import AuthenticatorValidateStageSerializer
 from authentik.stages.authenticator_validate.models import AuthenticatorValidateStage, DeviceClasses
 from authentik.stages.authenticator_validate.stage import PLAN_CONTEXT_DEVICE_CHALLENGES
@@ -30,14 +26,11 @@ class AuthenticatorValidateStageTests(FlowTestCase):
 
     def test_not_configured_action(self):
         """Test not_configured_action"""
-        ident_stage = IdentificationStage.objects.create(
+        conf_stage = IdentificationStage.objects.create(
             name=generate_id(),
             user_fields=[
                 UserFields.USERNAME,
             ],
-        )
-        conf_stage = AuthenticatorStaticStage.objects.create(
-            name=generate_id(),
         )
         stage = AuthenticatorValidateStage.objects.create(
             name=generate_id(),
@@ -45,7 +38,7 @@ class AuthenticatorValidateStageTests(FlowTestCase):
         )
         stage.configuration_stages.set([conf_stage])
         flow = create_test_flow()
-        FlowStageBinding.objects.create(target=flow, stage=ident_stage, order=0)
+        FlowStageBinding.objects.create(target=flow, stage=conf_stage, order=0)
         FlowStageBinding.objects.create(target=flow, stage=stage, order=1)
 
         response = self.client.get(
@@ -64,22 +57,27 @@ class AuthenticatorValidateStageTests(FlowTestCase):
         self.assertStageResponse(
             response,
             flow,
-            component="ak-stage-authenticator-static",
+            component="ak-stage-identification",
+            password_fields=False,
+            primary_action="Continue",
+            user_fields=["username"],
+            sources=[],
+            show_source_labels=False,
         )
 
     def test_not_configured_action_multiple(self):
         """Test not_configured_action"""
-        ident_stage = IdentificationStage.objects.create(
+        conf_stage = IdentificationStage.objects.create(
             name=generate_id(),
             user_fields=[
                 UserFields.USERNAME,
             ],
         )
-        conf_stage = AuthenticatorStaticStage.objects.create(
+        conf_stage2 = IdentificationStage.objects.create(
             name=generate_id(),
-        )
-        conf_stage2 = AuthenticatorTOTPStage.objects.create(
-            name=generate_id(), digits=TOTPDigits.SIX
+            user_fields=[
+                UserFields.USERNAME,
+            ],
         )
         stage = AuthenticatorValidateStage.objects.create(
             name=generate_id(),
@@ -87,7 +85,7 @@ class AuthenticatorValidateStageTests(FlowTestCase):
         )
         stage.configuration_stages.set([conf_stage, conf_stage2])
         flow = create_test_flow()
-        FlowStageBinding.objects.create(target=flow, stage=ident_stage, order=0)
+        FlowStageBinding.objects.create(target=flow, stage=conf_stage, order=0)
         FlowStageBinding.objects.create(target=flow, stage=stage, order=1)
 
         # Get initial identification stage
@@ -120,7 +118,12 @@ class AuthenticatorValidateStageTests(FlowTestCase):
         self.assertStageResponse(
             response,
             flow,
-            component="ak-stage-authenticator-static",
+            component="ak-stage-identification",
+            password_fields=False,
+            primary_action="Continue",
+            user_fields=["username"],
+            sources=[],
+            show_source_labels=False,
         )
 
     def test_stage_validation(self):
@@ -155,14 +158,10 @@ class AuthenticatorValidateStageTests(FlowTestCase):
             {
                 "device_class": "static",
                 "device_uid": "1",
-                "challenge": {},
-                "last_used": now(),
             },
             {
                 "device_class": "totp",
                 "device_uid": "2",
-                "challenge": {},
-                "last_used": now(),
             },
         ]
         session[SESSION_KEY_PLAN] = plan
@@ -175,7 +174,6 @@ class AuthenticatorValidateStageTests(FlowTestCase):
                     "device_class": "baz",
                     "device_uid": "quox",
                     "challenge": {},
-                    "last_used": None,
                 }
             },
         )
@@ -195,7 +193,6 @@ class AuthenticatorValidateStageTests(FlowTestCase):
                     "device_class": "static",
                     "device_uid": "1",
                     "challenge": {},
-                    "last_used": None,
                 },
             },
         )

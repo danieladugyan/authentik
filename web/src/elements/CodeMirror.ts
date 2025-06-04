@@ -1,5 +1,4 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { css as cssLang } from "@codemirror/lang-css";
 import { html as htmlLang } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
@@ -12,26 +11,16 @@ import {
 } from "@codemirror/language";
 import * as yamlMode from "@codemirror/legacy-modes/mode/yaml";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
-import { oneDark, oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
+import { oneDark } from "@codemirror/theme-one-dark";
 import { ViewUpdate } from "@codemirror/view";
 import { EditorView, drawSelection, keymap, lineNumbers } from "@codemirror/view";
 import { EVENT_THEME_CHANGE } from "@goauthentik/common/constants";
 import { AKElement } from "@goauthentik/elements/Base";
 import YAML from "yaml";
 
-import { CSSResult, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
 import { UiThemeEnum } from "@goauthentik/api";
-
-export enum CodeMirrorMode {
-    XML = "xml",
-    JavaScript = "javascript",
-    HTML = "html",
-    CSS = "css",
-    Python = "python",
-    YAML = "yaml",
-}
 
 @customElement("ak-codemirror")
 export class CodeMirrorTextarea<T> extends AKElement {
@@ -39,7 +28,7 @@ export class CodeMirrorTextarea<T> extends AKElement {
     readOnly = false;
 
     @property()
-    mode: CodeMirrorMode = CodeMirrorMode.YAML;
+    mode = "yaml";
 
     @property()
     name?: string;
@@ -51,44 +40,15 @@ export class CodeMirrorTextarea<T> extends AKElement {
 
     _value?: string;
 
-    theme: Compartment = new Compartment();
-    syntaxHighlighting: Compartment = new Compartment();
+    theme: Compartment;
 
-    themeLight = EditorView.theme(
-        {
-            "&": {
-                backgroundColor: "var(--pf-global--BackgroundColor--light-300)",
-            },
-        },
-        { dark: false },
-    );
-    themeDark = oneDark;
-    syntaxHighlightingLight = syntaxHighlighting(defaultHighlightStyle);
-    syntaxHighlightingDark = syntaxHighlighting(oneDarkHighlightStyle);
-
-    static get styles(): CSSResult[] {
-        return [
-            // Better alignment with patternfly components
-            css`
-                .cm-editor {
-                    padding-top: calc(
-                        var(--pf-global--spacer--form-element) - var(--pf-global--BorderWidth--sm)
-                    );
-                    padding-bottom: calc(
-                        var(--pf-global--spacer--form-element) - var(--pf-global--BorderWidth--sm)
-                    );
-                    padding-right: var(--pf-c-form-control--inset--base);
-                    padding-left: var(--pf-c-form-control--inset--base);
-                }
-            `,
-        ];
-    }
+    themeLight: Extension;
+    themeDark: Extension;
 
     @property()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any,@typescript-eslint/explicit-module-boundary-types
     set value(v: T | string) {
-        if (v === null || v === undefined) {
-            return;
-        }
+        if (v === null || v === undefined) return;
         // Value might be an object if within an iron-form, as that calls the getter of value
         // in the beginning and the calls this setter on reset
         let textValue = v;
@@ -119,17 +79,31 @@ export class CodeMirrorTextarea<T> extends AKElement {
             return this.getInnerValue();
         }
         try {
-            switch (this.mode) {
-                case CodeMirrorMode.YAML:
+            switch (this.mode.toLowerCase()) {
+                case "yaml":
                     return YAML.parse(this.getInnerValue());
-                case CodeMirrorMode.JavaScript:
+                case "javascript":
                     return JSON.parse(this.getInnerValue());
                 default:
                     return this.getInnerValue();
             }
-        } catch (_e: unknown) {
+        } catch (e) {
             return this.getInnerValue();
         }
+    }
+
+    constructor() {
+        super();
+        this.theme = new Compartment();
+        this.themeLight = EditorView.theme(
+            {
+                "&": {
+                    backgroundColor: "var(--pf-global--BackgroundColor--light-300)",
+                },
+            },
+            { dark: false },
+        );
+        this.themeDark = oneDark;
     }
 
     private getInnerValue(): string {
@@ -141,17 +115,15 @@ export class CodeMirrorTextarea<T> extends AKElement {
 
     getLanguageExtension(): LanguageSupport | undefined {
         switch (this.mode.toLowerCase()) {
-            case CodeMirrorMode.XML:
+            case "xml":
                 return xml();
-            case CodeMirrorMode.JavaScript:
+            case "javascript":
                 return javascript();
-            case CodeMirrorMode.HTML:
+            case "html":
                 return htmlLang();
-            case CodeMirrorMode.Python:
+            case "python":
                 return python();
-            case CodeMirrorMode.CSS:
-                return cssLang();
-            case CodeMirrorMode.YAML:
+            case "yaml":
                 return new LanguageSupport(StreamLanguage.define(yamlMode.yaml));
         }
         return undefined;
@@ -161,26 +133,18 @@ export class CodeMirrorTextarea<T> extends AKElement {
         this.addEventListener(EVENT_THEME_CHANGE, ((ev: CustomEvent<UiThemeEnum>) => {
             if (ev.detail === UiThemeEnum.Dark) {
                 this.editor?.dispatch({
-                    effects: [
-                        this.theme.reconfigure(this.themeDark),
-                        this.syntaxHighlighting.reconfigure(this.syntaxHighlightingDark),
-                    ],
+                    effects: this.theme.reconfigure(this.themeDark),
                 });
             } else {
                 this.editor?.dispatch({
-                    effects: [
-                        this.theme.reconfigure(this.themeLight),
-                        this.syntaxHighlighting.reconfigure(this.syntaxHighlightingLight),
-                    ],
+                    effects: this.theme.reconfigure(this.themeLight),
                 });
             }
         }) as EventListener);
-
-        const dark = this.activeTheme === UiThemeEnum.Dark;
-
         const extensions = [
             history(),
             keymap.of([...defaultKeymap, ...historyKeymap]),
+            syntaxHighlighting(defaultHighlightStyle),
             this.getLanguageExtension(),
             lineNumbers(),
             drawSelection(),
@@ -197,10 +161,7 @@ export class CodeMirrorTextarea<T> extends AKElement {
             }),
             EditorState.readOnly.of(this.readOnly),
             EditorState.tabSize.of(2),
-            this.syntaxHighlighting.of(
-                dark ? this.syntaxHighlightingDark : this.syntaxHighlightingLight,
-            ),
-            this.theme.of(dark ? this.themeDark : this.themeLight),
+            this.theme.of(this.activeTheme === UiThemeEnum.Dark ? this.themeDark : this.themeLight),
         ];
         this.editor = new EditorView({
             extensions: extensions.filter((p) => p) as Extension[],
@@ -208,11 +169,5 @@ export class CodeMirrorTextarea<T> extends AKElement {
             doc: this._value,
         });
         this.shadowRoot?.appendChild(this.editor.dom);
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-codemirror": CodeMirrorTextarea<unknown>;
     }
 }

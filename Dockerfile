@@ -1,204 +1,122 @@
-# syntax=docker/dockerfile:1
-
 # Stage 1: Build website
-FROM --platform=${BUILDPLATFORM} docker.io/library/node:24 AS website-builder
-
-ENV NODE_ENV=production
-
-WORKDIR /work/website
-
-RUN --mount=type=bind,target=/work/website/package.json,src=./website/package.json \
-    --mount=type=bind,target=/work/website/package-lock.json,src=./website/package-lock.json \
-    --mount=type=cache,id=npm-website,sharing=shared,target=/root/.npm \
-    npm ci --include=dev
+FROM --platform=${BUILDPLATFORM} docker.io/node:20 as website-builder
 
 COPY ./website /work/website/
 COPY ./blueprints /work/blueprints/
-COPY ./schema.yml /work/
 COPY ./SECURITY.md /work/
 
-RUN npm run build-bundled
+ENV NODE_ENV=production
+WORKDIR /work/website
+RUN npm ci --include=dev && npm run build-docs-only
 
 # Stage 2: Build webui
-FROM --platform=${BUILDPLATFORM} docker.io/library/node:24 AS web-builder
+FROM --platform=${BUILDPLATFORM} docker.io/node:20 as web-builder
 
-ARG GIT_BUILD_HASH
-ENV GIT_BUILD_HASH=$GIT_BUILD_HASH
-ENV NODE_ENV=production
-
-WORKDIR /work/web
-
-RUN --mount=type=bind,target=/work/web/package.json,src=./web/package.json \
-    --mount=type=bind,target=/work/web/package-lock.json,src=./web/package-lock.json \
-    --mount=type=bind,target=/work/web/packages/sfe/package.json,src=./web/packages/sfe/package.json \
-    --mount=type=bind,target=/work/web/scripts,src=./web/scripts \
-    --mount=type=cache,id=npm-web,sharing=shared,target=/root/.npm \
-    npm ci --include=dev
-
-COPY ./package.json /work
 COPY ./web /work/web/
 COPY ./website /work/website/
-COPY ./gen-ts-api /work/web/node_modules/@goauthentik/api
 
-RUN npm run build && \
-    npm run build:sfe
+ENV NODE_ENV=production
+WORKDIR /work/web
+RUN npm ci --include=dev && npm run build
 
-# Stage 3: Build go proxy
-FROM --platform=${BUILDPLATFORM} docker.io/library/golang:1.24-bookworm AS go-builder
+# Stage 3: Poetry to requirements.txt export
+FROM docker.io/python:3.11.4-slim-bullseye AS poetry-locker
 
-ARG TARGETOS
-ARG TARGETARCH
-ARG TARGETVARIANT
+WORKDIR /work
+COPY ./pyproject.toml /work
+COPY ./poetry.lock /work
 
-ARG GOOS=$TARGETOS
-ARG GOARCH=$TARGETARCH
+RUN pip install --no-cache-dir poetry && \
+    poetry export -f requirements.txt --output requirements.txt && \
+    poetry export -f requirements.txt --dev --output requirements-dev.txt
 
-WORKDIR /go/src/goauthentik.io
+# Stage 4: Build go proxy
+FROM docker.io/golang:1.20.5-bullseye AS go-builder
 
-RUN --mount=type=cache,id=apt-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/var/cache/apt \
-    dpkg --add-architecture arm64 && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu
+WORKDIR /work
 
-RUN --mount=type=bind,target=/go/src/goauthentik.io/go.mod,src=./go.mod \
-    --mount=type=bind,target=/go/src/goauthentik.io/go.sum,src=./go.sum \
-    --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+COPY --from=web-builder /work/web/robots.txt /work/web/robots.txt
+COPY --from=web-builder /work/web/security.txt /work/web/security.txt
 
-COPY ./cmd /go/src/goauthentik.io/cmd
-COPY ./authentik/lib /go/src/goauthentik.io/authentik/lib
-COPY ./web/static.go /go/src/goauthentik.io/web/static.go
-COPY --from=web-builder /work/web/robots.txt /go/src/goauthentik.io/web/robots.txt
-COPY --from=web-builder /work/web/security.txt /go/src/goauthentik.io/web/security.txt
-COPY ./internal /go/src/goauthentik.io/internal
-COPY ./go.mod /go/src/goauthentik.io/go.mod
-COPY ./go.sum /go/src/goauthentik.io/go.sum
+COPY ./cmd /work/cmd
+COPY ./web/static.go /work/web/static.go
+COPY ./internal /work/internal
+COPY ./go.mod /work/go.mod
+COPY ./go.sum /work/go.sum
 
-RUN --mount=type=cache,sharing=locked,target=/go/pkg/mod \
-    --mount=type=cache,id=go-build-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/root/.cache/go-build \
-    if [ "$TARGETARCH" = "arm64" ]; then export CC=aarch64-linux-gnu-gcc && export CC_FOR_TARGET=gcc-aarch64-linux-gnu; fi && \
-    CGO_ENABLED=1 GOFIPS140=latest GOARM="${TARGETVARIANT#v}" \
-    go build -o /go/authentik ./cmd/server
+RUN go build -o /work/authentik ./cmd/server/
 
-# Stage 4: MaxMind GeoIP
-FROM --platform=${BUILDPLATFORM} ghcr.io/maxmind/geoipupdate:v7.1.0 AS geoip
+# Stage 5: MaxMind GeoIP
+FROM ghcr.io/maxmind/geoipupdate:v5.1 as geoip
 
-ENV GEOIPUPDATE_EDITION_IDS="GeoLite2-City GeoLite2-ASN"
-ENV GEOIPUPDATE_VERBOSE="1"
-ENV GEOIPUPDATE_ACCOUNT_ID_FILE="/run/secrets/GEOIPUPDATE_ACCOUNT_ID"
+ENV GEOIPUPDATE_EDITION_IDS="GeoLite2-City"
+ENV GEOIPUPDATE_VERBOSE="true"
 
 USER root
 RUN --mount=type=secret,id=GEOIPUPDATE_ACCOUNT_ID \
     --mount=type=secret,id=GEOIPUPDATE_LICENSE_KEY \
     mkdir -p /usr/share/GeoIP && \
-    /bin/sh -c "GEOIPUPDATE_LICENSE_KEY_FILE=/run/secrets/GEOIPUPDATE_LICENSE_KEY /usr/bin/entry.sh || echo 'Failed to get GeoIP database, disabling'; exit 0"
+    /bin/sh -c "\
+        export GEOIPUPDATE_ACCOUNT_ID=$(cat /run/secrets/GEOIPUPDATE_ACCOUNT_ID); \
+        export GEOIPUPDATE_LICENSE_KEY=$(cat /run/secrets/GEOIPUPDATE_LICENSE_KEY); \
+        /usr/bin/entry.sh || echo 'Failed to get GeoIP database, disabling'; exit 0 \
+    "
 
-# Stage 5: Download uv
-FROM ghcr.io/astral-sh/uv:0.7.10 AS uv
-# Stage 6: Base python image
-FROM ghcr.io/goauthentik/fips-python:3.13.3-slim-bookworm-fips AS python-base
+# Stage 6: Run
+FROM docker.io/python:3.11.4-slim-bullseye AS final-image
 
-ENV VENV_PATH="/ak-root/.venv" \
-    PATH="/lifecycle:/ak-root/.venv/bin:$PATH" \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_NATIVE_TLS=1 \
-    UV_PYTHON_DOWNLOADS=0
-
-WORKDIR /ak-root/
-
-COPY --from=uv /uv /uvx /bin/
-
-# Stage 7: Python dependencies
-FROM python-base AS python-deps
-
-ARG TARGETARCH
-ARG TARGETVARIANT
-
-RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
-
-ENV PATH="/root/.cargo/bin:$PATH"
-
-RUN --mount=type=cache,id=apt-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/var/cache/apt \
-    apt-get update && \
-    # Required for installing pip packages
-    apt-get install -y --no-install-recommends \
-    # Build essentials
-    build-essential pkg-config libffi-dev git \
-    # cryptography
-    curl \
-    # libxml
-    libxslt-dev zlib1g-dev \
-    # postgresql
-    libpq-dev \
-    # python-kadmin-rs
-    clang libkrb5-dev sccache \
-    # xmlsec
-    libltdl-dev && \
-    curl https://sh.rustup.rs -sSf | sh -s -- -y
-
-ENV UV_NO_BINARY_PACKAGE="cryptography lxml python-kadmin-rs xmlsec"
-
-RUN --mount=type=bind,target=pyproject.toml,src=pyproject.toml \
-    --mount=type=bind,target=uv.lock,src=uv.lock \
-    --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
-
-# Stage 8: Run
-FROM python-base AS final-image
-
-ARG VERSION
 ARG GIT_BUILD_HASH
+ARG VERSION
 ENV GIT_BUILD_HASH=$GIT_BUILD_HASH
 
-LABEL org.opencontainers.image.url=https://goauthentik.io
-LABEL org.opencontainers.image.description="goauthentik.io Main server image, see https://goauthentik.io for more info."
-LABEL org.opencontainers.image.source=https://github.com/goauthentik/authentik
-LABEL org.opencontainers.image.version=${VERSION}
-LABEL org.opencontainers.image.revision=${GIT_BUILD_HASH}
+LABEL org.opencontainers.image.url https://goauthentik.io
+LABEL org.opencontainers.image.description goauthentik.io Main server image, see https://goauthentik.io for more info.
+LABEL org.opencontainers.image.source https://github.com/goauthentik/authentik
+LABEL org.opencontainers.image.version ${VERSION}
+LABEL org.opencontainers.image.revision ${GIT_BUILD_HASH}
 
 WORKDIR /
 
-# We cannot cache this layer otherwise we'll end up with a bigger image
+COPY --from=poetry-locker /work/requirements.txt /
+COPY --from=poetry-locker /work/requirements-dev.txt /
+COPY --from=geoip /usr/share/GeoIP /geoip
+
 RUN apt-get update && \
-    apt-get upgrade -y && \
+    # Required for installing pip packages
+    apt-get install -y --no-install-recommends build-essential pkg-config libxmlsec1-dev zlib1g-dev && \
     # Required for runtime
-    apt-get install -y --no-install-recommends libpq5 libmaxminddb0 ca-certificates libkrb5-3 libkadm5clnt-mit12 libkdb5-10 libltdl7 libxslt1.1 && \
+    apt-get install -y --no-install-recommends libxmlsec1-openssl libmaxminddb0 && \
     # Required for bootstrap & healtcheck
     apt-get install -y --no-install-recommends runit && \
-    pip3 install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /requirements.txt && \
+    apt-get remove --purge -y build-essential pkg-config libxmlsec1-dev && \
+    apt-get autoremove --purge -y && \
     apt-get clean && \
     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/ && \
     adduser --system --no-create-home --uid 1000 --group --home /authentik authentik && \
     mkdir -p /certs /media /blueprints && \
     mkdir -p /authentik/.ssh && \
-    mkdir -p /ak-root && \
-    chown authentik:authentik /certs /media /authentik/.ssh /ak-root
+    chown authentik:authentik /certs /media /authentik/.ssh
 
 COPY ./authentik/ /authentik
 COPY ./pyproject.toml /
-COPY ./uv.lock /
 COPY ./schemas /schemas
 COPY ./locale /locale
 COPY ./tests /tests
 COPY ./manage.py /
 COPY ./blueprints /blueprints
 COPY ./lifecycle/ /lifecycle
-COPY ./authentik/sources/kerberos/krb5.conf /etc/krb5.conf
-COPY --from=go-builder /go/authentik /bin/authentik
-COPY --from=python-deps /ak-root/.venv /ak-root/.venv
+COPY --from=go-builder /work/authentik /bin/authentik
 COPY --from=web-builder /work/web/dist/ /web/dist/
 COPY --from=web-builder /work/web/authentik/ /web/authentik/
-COPY --from=website-builder /work/website/build/ /website/help/
-COPY --from=geoip /usr/share/GeoIP /geoip
+COPY --from=website-builder /work/website/help/ /website/help/
 
 USER 1000
 
-ENV TMPDIR=/dev/shm/ \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    GOFIPS=1
+ENV TMPDIR /dev/shm/
+ENV PYTHONUNBUFFERED 1
+ENV PATH "/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/lifecycle"
 
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 CMD [ "ak", "healthcheck" ]
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 CMD [ "/lifecycle/ak", "healthcheck" ]
 
-ENTRYPOINT [ "dumb-init", "--", "ak" ]
+ENTRYPOINT [ "/usr/local/bin/dumb-init", "--", "/lifecycle/ak" ]

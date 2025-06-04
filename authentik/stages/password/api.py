@@ -1,5 +1,4 @@
 """PasswordStage API Views"""
-
 from rest_framework.viewsets import ModelViewSet
 
 from authentik.core.api.used_by import UsedByMixin
@@ -16,7 +15,6 @@ class PasswordStageSerializer(StageSerializer):
             "backends",
             "configure_flow",
             "failed_attempts_before_cancel",
-            "allow_show_password",
         ]
 
 
@@ -29,7 +27,6 @@ class PasswordStageViewSet(UsedByMixin, ModelViewSet):
         "name",
         "configure_flow",
         "failed_attempts_before_cancel",
-        "allow_show_password",
     ]
     search_fields = ["name"]
     ordering = ["name"]

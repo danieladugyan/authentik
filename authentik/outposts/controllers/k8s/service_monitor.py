@@ -1,5 +1,4 @@
 """Kubernetes Prometheus ServiceMonitor Reconciler"""
-
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
     from authentik.outposts.controllers.kubernetes import KubernetesController
 
 
-@dataclass(slots=True)
+@dataclass
 class PrometheusServiceMonitorSpecEndpoint:
     """Prometheus ServiceMonitor endpoint spec"""
 
@@ -21,23 +20,24 @@ class PrometheusServiceMonitorSpecEndpoint:
     path: str = field(default="/metrics")
 
 
-@dataclass(slots=True)
+@dataclass
 class PrometheusServiceMonitorSpecSelector:
     """Prometheus ServiceMonitor selector spec"""
 
+    # pylint: disable=invalid-name
     matchLabels: dict
 
 
-@dataclass(slots=True)
+@dataclass
 class PrometheusServiceMonitorSpec:
     """Prometheus ServiceMonitor spec"""
 
     endpoints: list[PrometheusServiceMonitorSpecEndpoint]
-
+    # pylint: disable=invalid-name
     selector: PrometheusServiceMonitorSpecSelector
 
 
-@dataclass(slots=True)
+@dataclass
 class PrometheusServiceMonitorMetadata:
     """Prometheus ServiceMonitor metadata"""
 
@@ -46,10 +46,11 @@ class PrometheusServiceMonitorMetadata:
     labels: dict = field(default_factory=dict)
 
 
-@dataclass(slots=True)
+@dataclass
 class PrometheusServiceMonitor:
     """Prometheus ServiceMonitor"""
 
+    # pylint: disable=invalid-name
     apiVersion: str
     kind: str
     metadata: PrometheusServiceMonitorMetadata
@@ -70,16 +71,9 @@ class PrometheusServiceMonitorReconciler(KubernetesObjectReconciler[PrometheusSe
         self.api_ex = ApiextensionsV1Api(controller.client)
         self.api = CustomObjectsApi(controller.client)
 
-    @staticmethod
-    def reconciler_name() -> str:
-        return "prometheus servicemonitor"
-
     @property
     def noop(self) -> bool:
-        if not self._crd_exists():
-            self.logger.debug("CRD doesn't exist")
-            return True
-        return self.is_embedded
+        return (not self._crd_exists()) or (self.is_embedded)
 
     def _crd_exists(self) -> bool:
         """Check if the Prometheus ServiceMonitor exists"""

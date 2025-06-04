@@ -1,6 +1,5 @@
+import { SeverityToLabel } from "@goauthentik/admin/events/utils";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { severityToLabel } from "@goauthentik/common/labels";
-import "@goauthentik/elements/ak-dual-select/ak-dual-select-dynamic-selected-provider.js";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 import "@goauthentik/elements/forms/Radio";
@@ -21,8 +20,6 @@ import {
     SeverityEnum,
 } from "@goauthentik/api";
 
-import { eventTransportsProvider, eventTransportsSelector } from "./RuleFormHelpers.js";
-
 @customElement("ak-event-rule-form")
 export class RuleForm extends ModelForm<NotificationRule, string> {
     eventTransports?: PaginatedNotificationTransportList;
@@ -40,9 +37,11 @@ export class RuleForm extends ModelForm<NotificationRule, string> {
     }
 
     getSuccessMessage(): string {
-        return this.instance
-            ? msg("Successfully updated rule.")
-            : msg("Successfully created rule.");
+        if (this.instance) {
+            return msg("Successfully updated rule.");
+        } else {
+            return msg("Successfully created rule.");
+        }
     }
 
     async send(data: NotificationRule): Promise<NotificationRule> {
@@ -51,14 +50,16 @@ export class RuleForm extends ModelForm<NotificationRule, string> {
                 pbmUuid: this.instance.pk || "",
                 notificationRuleRequest: data,
             });
+        } else {
+            return new EventsApi(DEFAULT_CONFIG).eventsRulesCreate({
+                notificationRuleRequest: data,
+            });
         }
-        return new EventsApi(DEFAULT_CONFIG).eventsRulesCreate({
-            notificationRuleRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
                     value="${ifDefined(this.instance?.name)}"
@@ -71,7 +72,6 @@ export class RuleForm extends ModelForm<NotificationRule, string> {
                     .fetchObjects=${async (query?: string): Promise<Group[]> => {
                         const args: CoreGroupsListRequest = {
                             ordering: "name",
-                            includeUsers: false,
                         };
                         if (query !== undefined) {
                             args.search = query;
@@ -102,44 +102,46 @@ export class RuleForm extends ModelForm<NotificationRule, string> {
                 ?required=${true}
                 name="transports"
             >
-                <ak-dual-select-dynamic-selected
-                    .provider=${eventTransportsProvider}
-                    .selector=${eventTransportsSelector(this.instance?.transports)}
-                    available-label="${msg("Available Transports")}"
-                    selected-label="${msg("Selected Transports")}"
-                ></ak-dual-select-dynamic-selected>
+                <select class="pf-c-form-control" multiple>
+                    ${this.eventTransports?.results.map((transport) => {
+                        const selected = Array.from(this.instance?.transports || []).some((su) => {
+                            return su == transport.pk;
+                        });
+                        return html`<option value=${ifDefined(transport.pk)} ?selected=${selected}>
+                            ${transport.name}
+                        </option>`;
+                    })}
+                </select>
                 <p class="pf-c-form__helper-text">
                     ${msg(
                         "Select which transports should be used to notify the user. If none are selected, the notification will only be shown in the authentik UI.",
                     )}
+                </p>
+                <p class="pf-c-form__helper-text">
+                    ${msg("Hold control/command to select multiple items.")}
                 </p>
             </ak-form-element-horizontal>
             <ak-form-element-horizontal label=${msg("Severity")} ?required=${true} name="severity">
                 <ak-radio
                     .options=${[
                         {
-                            label: severityToLabel(SeverityEnum.Alert),
+                            label: SeverityToLabel(SeverityEnum.Alert),
                             value: SeverityEnum.Alert,
                             default: true,
                         },
                         {
-                            label: severityToLabel(SeverityEnum.Warning),
+                            label: SeverityToLabel(SeverityEnum.Warning),
                             value: SeverityEnum.Warning,
                         },
                         {
-                            label: severityToLabel(SeverityEnum.Notice),
+                            label: SeverityToLabel(SeverityEnum.Notice),
                             value: SeverityEnum.Notice,
                         },
                     ]}
                     .value=${this.instance?.severity}
                 >
                 </ak-radio>
-            </ak-form-element-horizontal>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-event-rule-form": RuleForm;
+            </ak-form-element-horizontal>
+        </form>`;
     }
 }

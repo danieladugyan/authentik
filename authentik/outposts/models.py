@@ -1,9 +1,7 @@
 """Outpost models"""
-
-from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Iterable, Optional
 from uuid import uuid4
 
 from dacite.core import from_dict
@@ -21,14 +19,14 @@ from structlog.stdlib import get_logger
 
 from authentik import __version__, get_build_hash
 from authentik.blueprints.models import ManagedModel
-from authentik.brands.models import Brand
 from authentik.core.models import (
+    USER_ATTRIBUTE_CAN_OVERRIDE_IP,
+    USER_ATTRIBUTE_SA,
     USER_PATH_SYSTEM_PREFIX,
     Provider,
     Token,
     TokenIntents,
     User,
-    UserTypes,
 )
 from authentik.crypto.models import CertificateKeyPair
 from authentik.events.models import Event, EventAction
@@ -37,6 +35,7 @@ from authentik.lib.models import InheritanceForeignKey, SerializerModel
 from authentik.lib.sentry import SentryIgnoredException
 from authentik.lib.utils.errors import exception_to_string
 from authentik.outposts.controllers.k8s.utils import get_namespace
+from authentik.tenants.models import Tenant
 
 OUR_VERSION = parse(__version__)
 OUTPOST_HELLO_INTERVAL = 10
@@ -50,36 +49,33 @@ class ServiceConnectionInvalid(SentryIgnoredException):
 
 
 @dataclass
+# pylint: disable=too-many-instance-attributes
 class OutpostConfig:
     """Configuration an outpost uses to configure it self"""
 
-    # update website/docs/add-secure-apps/outposts/_config.md
+    # update website/docs/outposts/_config.md
 
     authentik_host: str = ""
     authentik_host_insecure: bool = False
     authentik_host_browser: str = ""
 
-    log_level: str = CONFIG.get("log_level")
+    log_level: str = CONFIG.y("log_level")
     object_naming_template: str = field(default="ak-outpost-%(name)s")
-    refresh_interval: str = "minutes=5"
 
-    container_image: str | None = field(default=None)
+    container_image: Optional[str] = field(default=None)
 
-    docker_network: str | None = field(default=None)
+    docker_network: Optional[str] = field(default=None)
     docker_map_ports: bool = field(default=True)
-    docker_labels: dict[str, str] | None = field(default=None)
+    docker_labels: Optional[dict[str, str]] = field(default=None)
 
     kubernetes_replicas: int = field(default=1)
     kubernetes_namespace: str = field(default_factory=get_namespace)
     kubernetes_ingress_annotations: dict[str, str] = field(default_factory=dict)
     kubernetes_ingress_secret_name: str = field(default="authentik-outpost-tls")
-    kubernetes_ingress_class_name: str | None = field(default=None)
-    kubernetes_httproute_annotations: dict[str, str] = field(default_factory=dict)
-    kubernetes_httproute_parent_refs: list[dict[str, str]] = field(default_factory=list)
+    kubernetes_ingress_class_name: Optional[str] = field(default=None)
     kubernetes_service_type: str = field(default="ClusterIP")
     kubernetes_disabled_components: list[str] = field(default_factory=list)
     kubernetes_image_pull_secrets: list[str] = field(default_factory=list)
-    kubernetes_json_patches: dict[str, list[dict[str, Any]]] | None = field(default=None)
 
 
 class OutpostModel(Model):
@@ -94,15 +90,14 @@ class OutpostModel(Model):
 
 
 class OutpostType(models.TextChoices):
-    """Outpost types"""
+    """Outpost types, currently only the reverse proxy is available"""
 
     PROXY = "proxy"
     LDAP = "ldap"
     RADIUS = "radius"
-    RAC = "rac"
 
 
-def default_outpost_config(host: str | None = None):
+def default_outpost_config(host: Optional[str] = None):
     """Get default outpost config"""
     return asdict(OutpostConfig(authentik_host=host or ""))
 
@@ -130,13 +125,6 @@ class OutpostServiceConnection(models.Model):
 
     objects = InheritanceManager()
 
-    class Meta:
-        verbose_name = _("Outpost Service-Connection")
-        verbose_name_plural = _("Outpost Service-Connections")
-
-    def __str__(self) -> str:
-        return f"Outpost service connection {self.name}"
-
     @property
     def state_key(self) -> str:
         """Key used to save connection state in cache"""
@@ -159,6 +147,10 @@ class OutpostServiceConnection(models.Model):
         # This is called when creating an outpost with a service connection
         # since the response doesn't use the correct inheritance
         return ""
+
+    class Meta:
+        verbose_name = _("Outpost Service-Connection")
+        verbose_name_plural = _("Outpost Service-Connections")
 
 
 class DockerServiceConnection(SerializerModel, OutpostServiceConnection):
@@ -194,13 +186,6 @@ class DockerServiceConnection(SerializerModel, OutpostServiceConnection):
         ),
     )
 
-    class Meta:
-        verbose_name = _("Docker Service-Connection")
-        verbose_name_plural = _("Docker Service-Connections")
-
-    def __str__(self) -> str:
-        return f"Docker Service-Connection {self.name}"
-
     @property
     def serializer(self) -> Serializer:
         from authentik.outposts.api.service_connections import DockerServiceConnectionSerializer
@@ -210,6 +195,13 @@ class DockerServiceConnection(SerializerModel, OutpostServiceConnection):
     @property
     def component(self) -> str:
         return "ak-service-connection-docker-form"
+
+    def __str__(self) -> str:
+        return f"Docker Service-Connection {self.name}"
+
+    class Meta:
+        verbose_name = _("Docker Service-Connection")
+        verbose_name_plural = _("Docker Service-Connections")
 
 
 class KubernetesServiceConnection(SerializerModel, OutpostServiceConnection):
@@ -226,13 +218,6 @@ class KubernetesServiceConnection(SerializerModel, OutpostServiceConnection):
         default=True, help_text=_("Verify SSL Certificates of the Kubernetes API endpoint")
     )
 
-    class Meta:
-        verbose_name = _("Kubernetes Service-Connection")
-        verbose_name_plural = _("Kubernetes Service-Connections")
-
-    def __str__(self) -> str:
-        return f"Kubernetes Service-Connection {self.name}"
-
     @property
     def serializer(self) -> Serializer:
         from authentik.outposts.api.service_connections import KubernetesServiceConnectionSerializer
@@ -242,6 +227,13 @@ class KubernetesServiceConnection(SerializerModel, OutpostServiceConnection):
     @property
     def component(self) -> str:
         return "ak-service-connection-kubernetes-form"
+
+    def __str__(self) -> str:
+        return f"Kubernetes Service-Connection {self.name}"
+
+    class Meta:
+        verbose_name = _("Kubernetes Service-Connection")
+        verbose_name_plural = _("Kubernetes Service-Connections")
 
 
 class Outpost(SerializerModel, ManagedModel):
@@ -352,22 +344,13 @@ class Outpost(SerializerModel, ManagedModel):
         user_created = False
         if not user:
             user: User = User.objects.create(username=self.user_identifier)
-            user_created = True
-        attrs = {
-            "type": UserTypes.INTERNAL_SERVICE_ACCOUNT,
-            "name": f"Outpost {self.name} Service-Account",
-            "path": USER_PATH_OUTPOSTS,
-        }
-        dirty = False
-        for key, value in attrs.items():
-            if getattr(user, key) != value:
-                dirty = True
-                setattr(user, key, value)
-        if user.has_usable_password():
             user.set_unusable_password()
-            dirty = True
-        if dirty:
-            user.save()
+            user_created = True
+        user.attributes[USER_ATTRIBUTE_SA] = True
+        user.attributes[USER_ATTRIBUTE_CAN_OVERRIDE_IP] = True
+        user.name = f"Outpost {self.name} Service-Account"
+        user.path = USER_PATH_OUTPOSTS
+        user.save()
         if user_created:
             self.build_user_permissions(user)
         return user
@@ -398,7 +381,7 @@ class Outpost(SerializerModel, ManagedModel):
                 managed=managed,
             )
         except IntegrityError:
-            # Integrity error happens mostly when managed is reused
+            # Integrity error happens mostly when managed is re-used
             Token.objects.filter(managed=managed).delete()
             Token.objects.filter(identifier=self.token_identifier).delete()
             return self.token
@@ -415,17 +398,13 @@ class Outpost(SerializerModel, ManagedModel):
             else:
                 objects.append(provider)
         if self.managed:
-            for brand in Brand.objects.filter(web_certificate__isnull=False):
-                objects.append(brand)
-                objects.append(brand.web_certificate)
+            for tenant in Tenant.objects.filter(web_certificate__isnull=False):
+                objects.append(tenant)
+                objects.append(tenant.web_certificate)
         return objects
 
     def __str__(self) -> str:
         return f"Outpost {self.name}"
-
-    class Meta:
-        verbose_name = _("Outpost")
-        verbose_name_plural = _("Outposts")
 
 
 @dataclass
@@ -433,18 +412,14 @@ class OutpostState:
     """Outpost instance state, last_seen and version"""
 
     uid: str
-    last_seen: datetime | None = field(default=None)
-    version: str | None = field(default=None)
+    channel_ids: list[str] = field(default_factory=list)
+    last_seen: Optional[datetime] = field(default=None)
+    version: Optional[str] = field(default=None)
     version_should: Version = field(default=OUR_VERSION)
     build_hash: str = field(default="")
-    golang_version: str = field(default="")
-    openssl_enabled: bool = field(default=False)
-    openssl_version: str = field(default="")
-    fips_enabled: bool = field(default=False)
     hostname: str = field(default="")
-    args: dict = field(default_factory=dict)
 
-    _outpost: Outpost | None = field(default=None)
+    _outpost: Optional[Outpost] = field(default=None)
 
     @property
     def version_outdated(self) -> bool:
@@ -453,7 +428,7 @@ class OutpostState:
             return False
         if self.build_hash != get_build_hash():
             return False
-        return parse(self.version) != OUR_VERSION
+        return parse(self.version) < OUR_VERSION
 
     @staticmethod
     def for_outpost(outpost: Outpost) -> list["OutpostState"]:
@@ -471,13 +446,13 @@ class OutpostState:
     def for_instance_uid(outpost: Outpost, uid: str) -> "OutpostState":
         """Get state for a single instance"""
         key = f"{outpost.state_cache_prefix}/{uid}"
-        default_data = {"uid": uid}
+        default_data = {"uid": uid, "channel_ids": []}
         data = cache.get(key, default_data)
         if isinstance(data, str):
             cache.delete(key)
             data = default_data
         state = from_dict(OutpostState, data)
-
+        # pylint: disable=protected-access
         state._outpost = outpost
         return state
 

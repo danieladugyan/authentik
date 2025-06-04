@@ -1,7 +1,8 @@
-import { BasePolicyForm } from "@goauthentik/admin/policies/BasePolicyForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
+import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
@@ -11,11 +12,19 @@ import { ifDefined } from "lit/directives/if-defined.js";
 import { PoliciesApi, ReputationPolicy } from "@goauthentik/api";
 
 @customElement("ak-policy-reputation-form")
-export class ReputationPolicyForm extends BasePolicyForm<ReputationPolicy> {
+export class ReputationPolicyForm extends ModelForm<ReputationPolicy, string> {
     loadInstance(pk: string): Promise<ReputationPolicy> {
         return new PoliciesApi(DEFAULT_CONFIG).policiesReputationRetrieve({
             policyUuid: pk,
         });
+    }
+
+    getSuccessMessage(): string {
+        if (this.instance) {
+            return msg("Successfully updated policy.");
+        } else {
+            return msg("Successfully created policy.");
+        }
     }
 
     async send(data: ReputationPolicy): Promise<ReputationPolicy> {
@@ -24,28 +33,30 @@ export class ReputationPolicyForm extends BasePolicyForm<ReputationPolicy> {
                 policyUuid: this.instance.pk || "",
                 reputationPolicyRequest: data,
             });
+        } else {
+            return new PoliciesApi(DEFAULT_CONFIG).policiesReputationCreate({
+                reputationPolicyRequest: data,
+            });
         }
-        return new PoliciesApi(DEFAULT_CONFIG).policiesReputationCreate({
-            reputationPolicyRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <span>
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <div class="form-help-text">
                 ${msg("Allows/denys requests based on the users and/or the IPs reputation.")}
-            </span>
-            <span>
+            </div>
+            <div class="form-help-text">
                 ${msg(
                     `Invalid login attempts will decrease the score for the client's IP, and the
 username they are attempting to login as, by one.`,
                 )}
-            </span>
-            <span>
+            </div>
+            <div class="form-help-text">
                 ${msg(
                     `The policy passes when the reputation score is below the threshold, and
 doesn't pass when either or both of the selected options are equal or above the threshold.`,
                 )}
-            </span>
+            </div>
             <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
@@ -59,7 +70,7 @@ doesn't pass when either or both of the selected options are equal or above the 
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.executionLogging ?? false}
+                        ?checked=${first(this.instance?.executionLogging, false)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -82,7 +93,7 @@ doesn't pass when either or both of the selected options are equal or above the 
                             <input
                                 class="pf-c-switch__input"
                                 type="checkbox"
-                                ?checked=${this.instance?.checkIp ?? true}
+                                ?checked=${first(this.instance?.checkIp, false)}
                             />
                             <span class="pf-c-switch__toggle">
                                 <span class="pf-c-switch__toggle-icon">
@@ -97,7 +108,7 @@ doesn't pass when either or both of the selected options are equal or above the 
                             <input
                                 class="pf-c-switch__input"
                                 type="checkbox"
-                                ?checked=${this.instance?.checkUsername ?? false}
+                                ?checked=${first(this.instance?.checkUsername, false)}
                             />
                             <span class="pf-c-switch__toggle">
                                 <span class="pf-c-switch__toggle-icon">
@@ -120,12 +131,7 @@ doesn't pass when either or both of the selected options are equal or above the 
                         />
                     </ak-form-element-horizontal>
                 </div>
-            </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-reputation-form": ReputationPolicyForm;
+            </ak-form-group>
+        </form>`;
     }
 }

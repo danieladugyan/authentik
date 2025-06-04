@@ -1,5 +1,4 @@
 """Small helper functions"""
-
 import uuid
 
 

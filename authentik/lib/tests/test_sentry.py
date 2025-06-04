@@ -1,5 +1,4 @@
 """test sentry integration"""
-
 from django.test import TestCase
 
 from authentik.lib.sentry import SentryIgnoredException, before_send

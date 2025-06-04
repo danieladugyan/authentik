@@ -1,6 +1,8 @@
 """test OAuth2 OpenID Provider flow"""
-
+from sys import platform
 from time import sleep
+from typing import Any, Optional
+from unittest.case import skipUnless
 
 from docker.types import Healthcheck
 from selenium.webdriver.common.by import By
@@ -14,21 +16,15 @@ from authentik.lib.generators import generate_id, generate_key
 from authentik.policies.expression.models import ExpressionPolicy
 from authentik.policies.models import PolicyBinding
 from authentik.providers.oauth2.constants import (
-    SCOPE_OFFLINE_ACCESS,
     SCOPE_OPENID,
     SCOPE_OPENID_EMAIL,
     SCOPE_OPENID_PROFILE,
 )
-from authentik.providers.oauth2.models import (
-    ClientTypes,
-    OAuth2Provider,
-    RedirectURI,
-    RedirectURIMatchingMode,
-    ScopeMapping,
-)
+from authentik.providers.oauth2.models import ClientTypes, OAuth2Provider, ScopeMapping
 from tests.e2e.utils import SeleniumTestCase, retry
 
 
+@skipUnless(platform.startswith("linux"), "requires local docker")
 class TestProviderOAuth2OAuth(SeleniumTestCase):
     """test OAuth with OAuth Provider flow"""
 
@@ -37,17 +33,19 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
         self.client_secret = generate_key()
         self.app_slug = generate_id(20)
         super().setUp()
-        self.run_container(
-            image="grafana/grafana:7.1.0",
-            ports={
-                "3000": "3000",
-            },
-            healthcheck=Healthcheck(
+
+    def get_container_specs(self) -> Optional[dict[str, Any]]:
+        return {
+            "image": "grafana/grafana:7.1.0",
+            "detach": True,
+            "network_mode": "host",
+            "auto_remove": True,
+            "healthcheck": Healthcheck(
                 test=["CMD", "wget", "--spider", "http://localhost:3000"],
-                interval=5 * 1_000 * 1_000_000,
-                start_period=1 * 1_000 * 1_000_000,
+                interval=5 * 100 * 1000000,
+                start_period=1 * 100 * 1000000,
             ),
-            environment={
+            "environment": {
                 "GF_AUTH_GENERIC_OAUTH_ENABLED": "true",
                 "GF_AUTH_GENERIC_OAUTH_CLIENT_ID": self.client_id,
                 "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET": self.client_secret,
@@ -61,7 +59,7 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
                 ),
                 "GF_LOG_LEVEL": "debug",
             },
-        )
+        }
 
     @retry()
     @apply_blueprint(
@@ -83,27 +81,22 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
             slug="default-provider-authorization-implicit-consent"
         )
         provider = OAuth2Provider.objects.create(
-            name=generate_id(),
+            name="grafana",
             client_type=ClientTypes.CONFIDENTIAL,
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:3000/")],
+            redirect_uris="http://localhost:3000/",
             authorization_flow=authorization_flow,
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
-                scope_name__in=[
-                    SCOPE_OPENID,
-                    SCOPE_OPENID_EMAIL,
-                    SCOPE_OPENID_PROFILE,
-                    SCOPE_OFFLINE_ACCESS,
-                ]
+                scope_name__in=[SCOPE_OPENID, SCOPE_OPENID_EMAIL, SCOPE_OPENID_PROFILE]
             )
         )
         provider.save()
         Application.objects.create(
-            name=generate_id(),
+            name="Grafana",
             slug=self.app_slug,
             provider=provider,
         )
@@ -121,8 +114,12 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
         "default/flow-default-authentication-flow.yaml",
         "default/flow-default-invalidation-flow.yaml",
     )
-    @apply_blueprint("default/flow-default-provider-authorization-implicit-consent.yaml")
-    @apply_blueprint("system/providers-oauth2.yaml")
+    @apply_blueprint(
+        "default/flow-default-provider-authorization-implicit-consent.yaml",
+    )
+    @apply_blueprint(
+        "system/providers-oauth2.yaml",
+    )
     @reconcile_app("authentik_crypto")
     def test_authorization_consent_implied(self):
         """test OpenID Provider flow (default authorization flow with implied consent)"""
@@ -132,30 +129,21 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
             slug="default-provider-authorization-implicit-consent"
         )
         provider = OAuth2Provider.objects.create(
-            name=generate_id(),
+            name="grafana",
             client_type=ClientTypes.CONFIDENTIAL,
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(
-                    RedirectURIMatchingMode.STRICT, "http://localhost:3000/login/generic_oauth"
-                )
-            ],
+            redirect_uris="http://localhost:3000/login/generic_oauth",
             authorization_flow=authorization_flow,
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
-                scope_name__in=[
-                    SCOPE_OPENID,
-                    SCOPE_OPENID_EMAIL,
-                    SCOPE_OPENID_PROFILE,
-                    SCOPE_OFFLINE_ACCESS,
-                ]
+                scope_name__in=[SCOPE_OPENID, SCOPE_OPENID_EMAIL, SCOPE_OPENID_PROFILE]
             )
         )
         Application.objects.create(
-            name=generate_id(),
+            name="Grafana",
             slug=self.app_slug,
             provider=provider,
         )
@@ -186,11 +174,9 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
     @apply_blueprint(
         "default/flow-default-authentication-flow.yaml",
         "default/flow-default-invalidation-flow.yaml",
-        "default/default-brand.yaml",
     )
     @apply_blueprint(
         "default/flow-default-provider-authorization-implicit-consent.yaml",
-        "default/flow-default-provider-invalidation.yaml",
     )
     @apply_blueprint(
         "system/providers-oauth2.yaml",
@@ -203,34 +189,23 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
         authorization_flow = Flow.objects.get(
             slug="default-provider-authorization-implicit-consent"
         )
-        invalidation_flow = Flow.objects.get(slug="default-provider-invalidation-flow")
         provider = OAuth2Provider.objects.create(
-            name=generate_id(),
+            name="grafana",
             client_type=ClientTypes.CONFIDENTIAL,
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(
-                    RedirectURIMatchingMode.STRICT, "http://localhost:3000/login/generic_oauth"
-                )
-            ],
+            redirect_uris="http://localhost:3000/login/generic_oauth",
             authorization_flow=authorization_flow,
-            invalidation_flow=invalidation_flow,
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
-                scope_name__in=[
-                    SCOPE_OPENID,
-                    SCOPE_OPENID_EMAIL,
-                    SCOPE_OPENID_PROFILE,
-                    SCOPE_OFFLINE_ACCESS,
-                ]
+                scope_name__in=[SCOPE_OPENID, SCOPE_OPENID_EMAIL, SCOPE_OPENID_PROFILE]
             )
         )
         provider.save()
         Application.objects.create(
-            name=generate_id(),
+            name="Grafana",
             slug=self.app_slug,
             provider=provider,
         )
@@ -259,22 +234,23 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
         self.driver.get("http://localhost:3000/logout")
         self.wait_for_url(
             self.url(
-                "authentik_core:if-flow",
-                query={"inspector": "available"},
-                flow_slug=invalidation_flow.slug,
+                "authentik_core:if-session-end",
+                application_slug=self.app_slug,
             )
         )
-        flow_executor = self.get_shadow_root("ak-flow-executor")
-        session_end_stage = self.get_shadow_root("ak-stage-session-end", flow_executor)
-        session_end_stage.find_element(By.ID, "logout").click()
+        self.driver.find_element(By.ID, "logout").click()
 
     @retry()
     @apply_blueprint(
         "default/flow-default-authentication-flow.yaml",
         "default/flow-default-invalidation-flow.yaml",
     )
-    @apply_blueprint("default/flow-default-provider-authorization-explicit-consent.yaml")
-    @apply_blueprint("system/providers-oauth2.yaml")
+    @apply_blueprint(
+        "default/flow-default-provider-authorization-explicit-consent.yaml",
+    )
+    @apply_blueprint(
+        "system/providers-oauth2.yaml",
+    )
     @reconcile_app("authentik_crypto")
     def test_authorization_consent_explicit(self):
         """test OpenID Provider flow (default authorization flow with explicit consent)"""
@@ -284,31 +260,22 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
             slug="default-provider-authorization-explicit-consent"
         )
         provider = OAuth2Provider.objects.create(
-            name=generate_id(),
+            name="grafana",
             authorization_flow=authorization_flow,
             client_type=ClientTypes.CONFIDENTIAL,
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(
-                    RedirectURIMatchingMode.STRICT, "http://localhost:3000/login/generic_oauth"
-                )
-            ],
+            redirect_uris="http://localhost:3000/login/generic_oauth",
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
-                scope_name__in=[
-                    SCOPE_OPENID,
-                    SCOPE_OPENID_EMAIL,
-                    SCOPE_OPENID_PROFILE,
-                    SCOPE_OFFLINE_ACCESS,
-                ]
+                scope_name__in=[SCOPE_OPENID, SCOPE_OPENID_EMAIL, SCOPE_OPENID_PROFILE]
             )
         )
         provider.save()
         app = Application.objects.create(
-            name=generate_id(),
+            name="Grafana",
             slug=self.app_slug,
             provider=provider,
         )
@@ -357,8 +324,12 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
         "default/flow-default-authentication-flow.yaml",
         "default/flow-default-invalidation-flow.yaml",
     )
-    @apply_blueprint("default/flow-default-provider-authorization-explicit-consent.yaml")
-    @apply_blueprint("system/providers-oauth2.yaml")
+    @apply_blueprint(
+        "default/flow-default-provider-authorization-explicit-consent.yaml",
+    )
+    @apply_blueprint(
+        "system/providers-oauth2.yaml",
+    )
     @reconcile_app("authentik_crypto")
     def test_authorization_denied(self):
         """test OpenID Provider flow (default authorization with access deny)"""
@@ -368,31 +339,22 @@ class TestProviderOAuth2OAuth(SeleniumTestCase):
             slug="default-provider-authorization-explicit-consent"
         )
         provider = OAuth2Provider.objects.create(
-            name=generate_id(),
+            name="grafana",
             authorization_flow=authorization_flow,
             client_type=ClientTypes.CONFIDENTIAL,
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(
-                    RedirectURIMatchingMode.STRICT, "http://localhost:3000/login/generic_oauth"
-                )
-            ],
+            redirect_uris="http://localhost:3000/login/generic_oauth",
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
-                scope_name__in=[
-                    SCOPE_OPENID,
-                    SCOPE_OPENID_EMAIL,
-                    SCOPE_OPENID_PROFILE,
-                    SCOPE_OFFLINE_ACCESS,
-                ]
+                scope_name__in=[SCOPE_OPENID, SCOPE_OPENID_EMAIL, SCOPE_OPENID_PROFILE]
             )
         )
         provider.save()
         app = Application.objects.create(
-            name=generate_id(),
+            name="Grafana",
             slug=self.app_slug,
             provider=provider,
         )

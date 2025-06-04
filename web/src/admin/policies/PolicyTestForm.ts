@@ -1,8 +1,7 @@
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import "@goauthentik/components/ak-status-label";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/CodeMirror";
-import { CodeMirrorMode } from "@goauthentik/elements/CodeMirror";
-import "@goauthentik/elements/events/LogViewer";
+import { PFColor } from "@goauthentik/elements/Label";
 import { Form } from "@goauthentik/elements/forms/Form";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import "@goauthentik/elements/forms/SearchSelect";
@@ -58,7 +57,9 @@ export class PolicyTestForm extends Form<PolicyTestRequest> {
                 <div class="pf-c-form__group-label">
                     <div class="c-form__horizontal-group">
                         <span class="pf-c-form__label-text">
-                            <ak-status-label ?good=${this.result?.passing}></ak-status-label>
+                            <ak-label color=${this.result?.passing ? PFColor.Green : PFColor.Red}>
+                                ${this.result?.passing ? msg("Yes") : msg("No")}
+                            </ak-label>
                         </span>
                     </div>
                 </div>
@@ -85,7 +86,28 @@ export class PolicyTestForm extends Form<PolicyTestRequest> {
                 <div class="pf-c-form__group-label">
                     <div class="c-form__horizontal-group">
                         <dl class="pf-c-description-list pf-m-horizontal">
-                            <ak-log-viewer .logs=${this.result?.logMessages}></ak-log-viewer>
+                            ${(this.result?.logMessages || []).length > 0
+                                ? this.result?.logMessages?.map((m) => {
+                                      return html`<div class="pf-c-description-list__group">
+                                          <dt class="pf-c-description-list__term">
+                                              <span class="pf-c-description-list__text"
+                                                  >${m.log_level}</span
+                                              >
+                                          </dt>
+                                          <dd class="pf-c-description-list__description">
+                                              <div class="pf-c-description-list__text">
+                                                  ${m.event}
+                                              </div>
+                                          </dd>
+                                      </div>`;
+                                  })
+                                : html`<div class="pf-c-description-list__group">
+                                      <dt class="pf-c-description-list__term">
+                                          <span class="pf-c-description-list__text"
+                                              >${msg("No log messages.")}</span
+                                          >
+                                      </dt>
+                                  </div>`}
                         </dl>
                     </div>
                 </div>
@@ -93,7 +115,7 @@ export class PolicyTestForm extends Form<PolicyTestRequest> {
         `;
     }
 
-    renderForm(): TemplateResult {
+    renderInlineForm(): TemplateResult {
         return html`<ak-form-element-horizontal label=${msg("User")} ?required=${true} name="user">
                 <ak-search-select
                     .fetchObjects=${async (query?: string): Promise<User[]> => {
@@ -123,8 +145,8 @@ export class PolicyTestForm extends Form<PolicyTestRequest> {
             </ak-form-element-horizontal>
             <ak-form-element-horizontal label=${msg("Context")} name="context">
                 <ak-codemirror
-                    mode=${CodeMirrorMode.YAML}
-                    value=${YAML.stringify(this.request?.context ?? {})}
+                    mode="yaml"
+                    value=${YAML.stringify(first(this.request?.context, {}))}
                 >
                 </ak-codemirror>
                 <p class="pf-c-form__helper-text">
@@ -132,11 +154,5 @@ export class PolicyTestForm extends Form<PolicyTestRequest> {
                 </p>
             </ak-form-element-horizontal>
             ${this.result ? this.renderResult() : html``}`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-test-form": PolicyTestForm;
     }
 }

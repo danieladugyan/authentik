@@ -1,5 +1,4 @@
 """flow urls"""
-
 from django.urls import path
 
 from authentik.flows.api.bindings import FlowStageBindingViewSet

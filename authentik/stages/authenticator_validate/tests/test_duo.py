@@ -1,5 +1,4 @@
 """Test validator stage"""
-
 from unittest.mock import MagicMock, patch
 
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -7,8 +6,6 @@ from django.test.client import RequestFactory
 from django.urls import reverse
 from rest_framework.exceptions import ValidationError
 
-from authentik.brands.utils import get_brand_for_request
-from authentik.core.middleware import RESPONSE_HEADER_ID
 from authentik.core.tests.utils import create_test_admin_user, create_test_flow
 from authentik.events.models import Event, EventAction
 from authentik.flows.models import FlowDesignation, FlowStageBinding
@@ -22,6 +19,7 @@ from authentik.stages.authenticator_duo.models import AuthenticatorDuoStage, Duo
 from authentik.stages.authenticator_validate.challenge import validate_challenge_duo
 from authentik.stages.authenticator_validate.models import AuthenticatorValidateStage, DeviceClasses
 from authentik.stages.user_login.models import UserLoginStage
+from authentik.tenants.utils import get_tenant_for_request
 
 
 class AuthenticatorValidateStageDuoTests(FlowTestCase):
@@ -38,7 +36,7 @@ class AuthenticatorValidateStageDuoTests(FlowTestCase):
         middleware = SessionMiddleware(dummy_get_response)
         middleware.process_request(request)
         request.session.save()
-        request.brand = get_brand_for_request(request)
+        setattr(request, "tenant", get_tenant_for_request(request))
 
         stage = AuthenticatorDuoStage.objects.create(
             name=generate_id(),
@@ -186,8 +184,6 @@ class AuthenticatorValidateStageDuoTests(FlowTestCase):
                     "args": {},
                     "method": "GET",
                     "path": f"/api/v3/flows/executor/{flow.slug}/",
-                    "user_agent": "",
-                    "request_id": response[RESPONSE_HEADER_ID],
                 },
             },
         )

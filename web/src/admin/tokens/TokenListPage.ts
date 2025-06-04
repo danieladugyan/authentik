@@ -1,9 +1,7 @@
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import "@goauthentik/admin/tokens/TokenForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { intentToLabel } from "@goauthentik/common/labels";
-import { formatElapsedTime } from "@goauthentik/common/temporal";
-import "@goauthentik/components/ak-status-label";
+import { uiConfig } from "@goauthentik/common/ui/config";
+import { PFColor } from "@goauthentik/elements/Label";
 import "@goauthentik/elements/buttons/Dropdown";
 import "@goauthentik/elements/buttons/TokenCopyButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
@@ -11,18 +9,27 @@ import "@goauthentik/elements/forms/ModalForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
-import {
-    CoreApi,
-    IntentEnum,
-    RbacPermissionsAssignedByUsersListModelEnum,
-    Token,
-} from "@goauthentik/api";
+import { CoreApi, IntentEnum, Token } from "@goauthentik/api";
+
+export function IntentToLabel(intent: IntentEnum): string {
+    switch (intent) {
+        case IntentEnum.Api:
+            return msg("API Access");
+        case IntentEnum.AppPassword:
+            return msg("App password");
+        case IntentEnum.Recovery:
+            return msg("Recovery");
+        case IntentEnum.Verification:
+            return msg("Verification");
+        case IntentEnum.UnknownDefaultOpenApi:
+            return msg("Unknown intent");
+    }
+}
 
 @customElement("ak-token-list")
 export class TokenListPage extends TablePage<Token> {
@@ -42,13 +49,17 @@ export class TokenListPage extends TablePage<Token> {
     }
 
     checkbox = true;
-    clearOnRefresh = true;
 
     @property()
     order = "expires";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Token>> {
-        return new CoreApi(DEFAULT_CONFIG).coreTokensList(await this.defaultEndpointConfig());
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Token>> {
+        return new CoreApi(DEFAULT_CONFIG).coreTokensList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
     }
 
     columns(): TableColumn[] {
@@ -105,12 +116,11 @@ export class TokenListPage extends TablePage<Token> {
                     ? html`<small>${msg("Token is managed by authentik.")}</small>`
                     : html``}`,
             html`<a href="#/identity/users/${item.userObj?.pk}">${item.userObj?.username}</a>`,
-            html`<ak-status-label type="warning" ?good=${item.expiring}></ak-status-label>`,
-            html`${item.expires && item.expiring
-                ? html`<div>${formatElapsedTime(item.expires)}</div>
-                      <small>${item.expires.toLocaleString()}</small>`
-                : msg("-")}`,
-            html`${intentToLabel(item.intent ?? IntentEnum.Api)}`,
+            html` <ak-label color=${item.expiring ? PFColor.Green : PFColor.Orange}>
+                ${item.expiring ? msg("Yes") : msg("No")}
+            </ak-label>`,
+            html`${item.expiring ? item.expires?.toLocaleString() : msg("-")}`,
+            html`${IntentToLabel(item.intent || IntentEnum.Api)}`,
             html`
                 ${!item.managed
                     ? html`<ak-forms-modal>
@@ -118,39 +128,17 @@ export class TokenListPage extends TablePage<Token> {
                           <span slot="header"> ${msg("Update Token")} </span>
                           <ak-token-form slot="form" .instancePk=${item.identifier}></ak-token-form>
                           <button slot="trigger" class="pf-c-button pf-m-plain">
-                              <pf-tooltip position="top" content=${msg("Edit")}>
-                                  <i class="fas fa-edit"></i>
-                              </pf-tooltip>
+                              <i class="fas fa-edit"></i>
                           </button>
                       </ak-forms-modal>`
-                    : html` <button class="pf-c-button pf-m-plain" disabled>
-                          <pf-tooltip
-                              position="top"
-                              content=${msg("Editing is disabled for managed tokens")}
-                          >
-                              <i class="fas fa-edit"></i>
-                          </pf-tooltip>
-                      </button>`}
-                <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikCoreToken}
-                    objectPk=${item.pk}
-                >
-                </ak-rbac-object-permission-modal>
+                    : html``}
                 <ak-token-copy-button
                     class="pf-c-button pf-m-plain"
                     identifier="${item.identifier}"
                 >
-                    <pf-tooltip position="top" content=${msg("Copy token")}>
-                        <i class="fas fa-copy"></i>
-                    </pf-tooltip>
+                    <i class="fas fa-copy"></i>
                 </ak-token-copy-button>
             `,
         ];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-token-list": TokenListPage;
     }
 }

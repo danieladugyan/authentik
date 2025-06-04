@@ -1,5 +1,4 @@
 """authentik captcha app"""
-
 from django.apps import AppConfig
 
 

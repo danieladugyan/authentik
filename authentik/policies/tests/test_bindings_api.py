@@ -1,5 +1,4 @@
 """Test bindings API"""
-
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -38,7 +37,7 @@ class TestBindingsAPI(APITestCase):
         )
         self.assertJSONEqual(
             response.content.decode(),
-            {"non_field_errors": ["Only one of 'group', 'policy', 'user' can be set."]},
+            {"non_field_errors": ["Only one of 'policy', 'group' or 'user' can be set."]},
         )
 
     def test_invalid_too_little(self):
@@ -49,5 +48,5 @@ class TestBindingsAPI(APITestCase):
         )
         self.assertJSONEqual(
             response.content.decode(),
-            {"non_field_errors": ["One of 'group', 'policy', 'user' must be set."]},
+            {"non_field_errors": ["One of 'policy', 'group' or 'user' must be set."]},
         )

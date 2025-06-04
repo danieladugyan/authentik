@@ -16,21 +16,17 @@ func BUILD(def string) string {
 func FullVersion() string {
 	ver := VERSION
 	if b := BUILD(""); b != "" {
-		return fmt.Sprintf("%s+%s", ver, b)
+		ver = fmt.Sprintf("%s.%s", ver, b)
 	}
 	return ver
 }
 
-func UserAgentOutpost() string {
+func OutpostUserAgent() string {
 	return fmt.Sprintf("goauthentik.io/outpost/%s", FullVersion())
-}
-
-func UserAgentIPC() string {
-	return fmt.Sprintf("goauthentik.io/ipc/%s", FullVersion())
 }
 
 func UserAgent() string {
 	return fmt.Sprintf("authentik@%s", FullVersion())
 }
 
-const VERSION = "2025.4.1"
+const VERSION = "2023.6.2"

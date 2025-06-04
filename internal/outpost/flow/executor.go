@@ -8,7 +8,6 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
@@ -22,12 +21,12 @@ import (
 
 var (
 	FlowTimingGet = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "authentik_outpost_flow_timing_get_seconds",
-		Help: "Duration it took to get a challenge in seconds",
+		Name: "authentik_outpost_flow_timing_get",
+		Help: "Duration it took to get a challenge",
 	}, []string{"stage", "flow"})
 	FlowTimingPost = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "authentik_outpost_flow_timing_post_seconds",
-		Help: "Duration it took to send a challenge in seconds",
+		Name: "authentik_outpost_flow_timing_post",
+		Help: "Duration it took to send a challenge",
 	}, []string{"stage", "flow"})
 )
 
@@ -61,7 +60,7 @@ func NewFlowExecutor(ctx context.Context, flowSlug string, refConfig *api.Config
 		l.WithError(err).Warning("Failed to create cookiejar")
 		panic(err)
 	}
-	transport := web.NewUserAgentTransport(constants.UserAgentOutpost(), web.NewTracingTransport(rsp.Context(), ak.GetTLSTransport()))
+	transport := web.NewUserAgentTransport(constants.OutpostUserAgent(), web.NewTracingTransport(rsp.Context(), ak.GetTLSTransport()))
 	fe := &FlowExecutor{
 		Params:    url.Values{},
 		Answers:   make(map[StageComponent]string),
@@ -86,9 +85,7 @@ func NewFlowExecutor(ctx context.Context, flowSlug string, refConfig *api.Config
 		Jar:       jar,
 		Transport: fe,
 	}
-	if authz, ok := refConfig.DefaultHeader["Authorization"]; ok {
-		fe.token = strings.Split(authz, " ")[1]
-	}
+	fe.token = strings.Split(refConfig.DefaultHeader["Authorization"], " ")[1]
 	config.AddDefaultHeader(HeaderAuthentikOutpostToken, fe.token)
 	fe.api = api.NewAPIClient(config)
 	return fe
@@ -110,14 +107,30 @@ func (fe *FlowExecutor) ApiClient() *api.APIClient {
 	return fe.api
 }
 
-type challengeCommon interface {
+type challengeInt interface {
 	GetComponent() string
+	GetType() api.ChallengeChoices
 	GetResponseErrors() map[string][]api.ErrorDetail
 }
 
 func (fe *FlowExecutor) DelegateClientIP(a string) {
 	fe.cip = a
 	fe.api.GetConfig().AddDefaultHeader(HeaderAuthentikRemoteIP, fe.cip)
+}
+
+func (fe *FlowExecutor) CheckApplicationAccess(appSlug string) (bool, error) {
+	acsp := sentry.StartSpan(fe.Context, "authentik.outposts.flow_executor.check_access")
+	defer acsp.Finish()
+	p, _, err := fe.api.CoreApi.CoreApplicationsCheckAccessRetrieve(acsp.Context(), appSlug).Execute()
+	if err != nil {
+		return false, fmt.Errorf("failed to check access: %w", err)
+	}
+	if !p.Passing {
+		fe.log.Info("Access denied for user")
+		return false, nil
+	}
+	fe.log.Debug("User has access")
+	return true, nil
 }
 
 func (fe *FlowExecutor) getAnswer(stage StageComponent) string {
@@ -165,14 +178,15 @@ func (fe *FlowExecutor) getInitialChallenge() (*api.ChallengeTypes, error) {
 	if i == nil {
 		return nil, errors.New("response instance was null")
 	}
-	ch := i.(challengeCommon)
-	fe.log.WithField("component", ch.GetComponent()).Debug("Got challenge")
+	ch := i.(challengeInt)
+	fe.log.WithField("component", ch.GetComponent()).WithField("type", ch.GetType()).Debug("Got challenge")
+	gcsp.SetTag("authentik.flow.challenge", string(ch.GetType()))
 	gcsp.SetTag("authentik.flow.component", ch.GetComponent())
 	gcsp.Finish()
 	FlowTimingGet.With(prometheus.Labels{
 		"stage": ch.GetComponent(),
 		"flow":  fe.flowSlug,
-	}).Observe(float64(gcsp.EndTime.Sub(gcsp.StartTime)) / float64(time.Second))
+	}).Observe(float64(gcsp.EndTime.Sub(gcsp.StartTime)))
 	return challenge, nil
 }
 
@@ -184,7 +198,7 @@ func (fe *FlowExecutor) solveFlowChallenge(challenge *api.ChallengeTypes, depth 
 	if i == nil {
 		return false, errors.New("response request instance was null")
 	}
-	ch := i.(challengeCommon)
+	ch := i.(challengeInt)
 
 	// Check for any validation errors that we might've gotten
 	if len(ch.GetResponseErrors()) > 0 {
@@ -195,12 +209,13 @@ func (fe *FlowExecutor) solveFlowChallenge(challenge *api.ChallengeTypes, depth 
 		}
 	}
 
-	switch ch.GetComponent() {
-	case string(StageAccessDenied):
-		return false, nil
-	case string(StageRedirect):
+	switch ch.GetType() {
+	case api.CHALLENGECHOICES_REDIRECT:
 		return true, nil
-	default:
+	case api.CHALLENGECHOICES_NATIVE:
+		if ch.GetComponent() == string(StageAccessDenied) {
+			return false, nil
+		}
 		solver, ok := fe.solvers[StageComponent(ch.GetComponent())]
 		if !ok {
 			return false, fmt.Errorf("unsupported challenge type %s", ch.GetComponent())
@@ -220,14 +235,15 @@ func (fe *FlowExecutor) solveFlowChallenge(challenge *api.ChallengeTypes, depth 
 	if i == nil {
 		return false, errors.New("response instance was null")
 	}
-	ch = i.(challengeCommon)
-	fe.log.WithField("component", ch.GetComponent()).Debug("Got response")
+	ch = i.(challengeInt)
+	fe.log.WithField("component", ch.GetComponent()).WithField("type", ch.GetType()).Debug("Got response")
+	scsp.SetTag("authentik.flow.challenge", string(ch.GetType()))
 	scsp.SetTag("authentik.flow.component", ch.GetComponent())
 	scsp.Finish()
 	FlowTimingPost.With(prometheus.Labels{
 		"stage": ch.GetComponent(),
 		"flow":  fe.flowSlug,
-	}).Observe(float64(scsp.EndTime.Sub(scsp.StartTime)) / float64(time.Second))
+	}).Observe(float64(scsp.EndTime.Sub(scsp.StartTime)))
 
 	if depth >= 10 {
 		return false, errors.New("exceeded stage recursion depth")

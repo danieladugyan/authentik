@@ -1,5 +1,4 @@
 """AuthenticatorValidateStage API Views"""
-
 from rest_framework.serializers import ValidationError
 from rest_framework.viewsets import ModelViewSet
 
@@ -7,15 +6,10 @@ from authentik.core.api.used_by import UsedByMixin
 from authentik.flows.api.stages import StageSerializer
 from authentik.flows.models import NotConfiguredAction
 from authentik.stages.authenticator_validate.models import AuthenticatorValidateStage
-from authentik.stages.authenticator_webauthn.api.device_types import WebAuthnDeviceTypeSerializer
 
 
 class AuthenticatorValidateStageSerializer(StageSerializer):
     """AuthenticatorValidateStage Serializer"""
-
-    webauthn_allowed_device_types_obj = WebAuthnDeviceTypeSerializer(
-        source="webauthn_allowed_device_types", many=True, read_only=True
-    )
 
     def validate_not_configured_action(self, value):
         """Ensure that a configuration stage is set when not_configured_action is configure"""
@@ -36,8 +30,6 @@ class AuthenticatorValidateStageSerializer(StageSerializer):
             "configuration_stages",
             "last_auth_threshold",
             "webauthn_user_verification",
-            "webauthn_allowed_device_types",
-            "webauthn_allowed_device_types_obj",
         ]
 
 

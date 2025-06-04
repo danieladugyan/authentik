@@ -1,5 +1,4 @@
 """Login Stage API Views"""
-
 from rest_framework.viewsets import ModelViewSet
 
 from authentik.core.api.used_by import UsedByMixin
@@ -16,8 +15,6 @@ class UserLoginStageSerializer(StageSerializer):
             "session_duration",
             "terminate_other_sessions",
             "remember_me_offset",
-            "network_binding",
-            "geoip_binding",
         ]
 
 

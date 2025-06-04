@@ -1,16 +1,11 @@
 """Static OTP Setup stage"""
-
 from django.http import HttpRequest, HttpResponse
+from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from rest_framework.fields import CharField, ListField
 
-from authentik.flows.challenge import ChallengeResponse, WithUserInfoChallenge
+from authentik.flows.challenge import ChallengeResponse, ChallengeTypes, WithUserInfoChallenge
 from authentik.flows.stage import ChallengeStageView
-from authentik.lib.generators import generate_id
-from authentik.stages.authenticator_static.models import (
-    AuthenticatorStaticStage,
-    StaticDevice,
-    StaticToken,
-)
+from authentik.stages.authenticator_static.models import AuthenticatorStaticStage
 
 SESSION_STATIC_DEVICE = "static_device"
 SESSION_STATIC_TOKENS = "static_device_tokens"
@@ -38,6 +33,7 @@ class AuthenticatorStaticStageView(ChallengeStageView):
         tokens: list[StaticToken] = self.request.session[SESSION_STATIC_TOKENS]
         return AuthenticatorStaticChallenge(
             data={
+                "type": ChallengeTypes.NATIVE.value,
                 "codes": [token.token for token in tokens],
             }
         )
@@ -54,9 +50,7 @@ class AuthenticatorStaticStageView(ChallengeStageView):
             device = StaticDevice(user=user, confirmed=False, name="Static Token")
             tokens = []
             for _ in range(0, stage.token_count):
-                tokens.append(
-                    StaticToken(device=device, token=generate_id(length=stage.token_length))
-                )
+                tokens.append(StaticToken(device=device, token=StaticToken.random_token()))
             self.request.session[SESSION_STATIC_DEVICE] = device
             self.request.session[SESSION_STATIC_TOKENS] = tokens
         return super().get(request, *args, **kwargs)

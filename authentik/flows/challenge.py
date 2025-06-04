@@ -1,5 +1,4 @@
 """Challenge helpers"""
-
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional, TypedDict
@@ -8,7 +7,7 @@ from uuid import UUID
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.http import JsonResponse
-from rest_framework.fields import BooleanField, CharField, ChoiceField, DictField
+from rest_framework.fields import CharField, ChoiceField, DictField
 from rest_framework.request import Request
 
 from authentik.core.api.utils import PassiveSerializer
@@ -32,6 +31,14 @@ class FlowLayout(models.TextChoices):
     SIDEBAR_RIGHT = "sidebar_right"
 
 
+class ChallengeTypes(Enum):
+    """Currently defined challenge types"""
+
+    NATIVE = "native"
+    SHELL = "shell"
+    REDIRECT = "redirect"
+
+
 class ErrorDetailSerializer(PassiveSerializer):
     """Serializer for rest_framework's error messages"""
 
@@ -52,6 +59,9 @@ class Challenge(PassiveSerializer):
     """Challenge that gets sent to the client based on which stage
     is currently active"""
 
+    type = ChoiceField(
+        choices=[(x.value, x.name) for x in ChallengeTypes],
+    )
     flow_info = ContextualFlowInfo(required=False)
     component = CharField(default="")
 
@@ -85,6 +95,7 @@ class FlowErrorChallenge(Challenge):
     """Challenge class when an unhandled error occurs during a stage. Normal users
     are shown an error message, superusers are shown a full stacktrace."""
 
+    type = CharField(default=ChallengeTypes.NATIVE.value)
     component = CharField(default="ak-stage-flow-error")
 
     request_id = CharField()
@@ -92,7 +103,7 @@ class FlowErrorChallenge(Challenge):
     error = CharField(required=False)
     traceback = CharField(required=False)
 
-    def __init__(self, request: Request | None = None, error: Exception | None = None):
+    def __init__(self, request: Optional[Request] = None, error: Optional[Exception] = None):
         super().__init__(data={})
         if not request or not error:
             return
@@ -110,21 +121,8 @@ class FlowErrorChallenge(Challenge):
 class AccessDeniedChallenge(WithUserInfoChallenge):
     """Challenge when a flow's active stage calls `stage_invalid()`."""
 
-    component = CharField(default="ak-stage-access-denied")
-
     error_message = CharField(required=False)
-
-
-class SessionEndChallenge(WithUserInfoChallenge):
-    """Challenge for ending a session"""
-
-    component = CharField(default="ak-stage-session-end")
-
-    application_name = CharField(required=False)
-    application_launch_url = CharField(required=False)
-
-    invalidation_flow_url = CharField(required=False)
-    brand_name = CharField(required=True)
+    component = CharField(default="ak-stage-access-denied")
 
 
 class PermissionDict(TypedDict):
@@ -132,6 +130,13 @@ class PermissionDict(TypedDict):
 
     id: str
     name: str
+
+
+class PermissionSerializer(PassiveSerializer):
+    """Permission used for consent"""
+
+    name = CharField(allow_blank=True)
+    id = CharField()
 
 
 class ChallengeResponse(PassiveSerializer):
@@ -158,20 +163,6 @@ class AutoSubmitChallengeResponse(ChallengeResponse):
     """Pseudo class for autosubmit response"""
 
     component = CharField(default="ak-stage-autosubmit")
-
-
-class FrameChallenge(Challenge):
-    """Challenge type to render a frame"""
-
-    component = CharField(default="xak-flow-frame")
-    url = CharField()
-    loading_overlay = BooleanField(default=False)
-    loading_text = CharField()
-
-
-class FrameChallengeResponse(ChallengeResponse):
-
-    component = CharField(default="xak-flow-frame")
 
 
 class DataclassEncoder(DjangoJSONEncoder):

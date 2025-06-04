@@ -1,5 +1,4 @@
 """API URLs"""
-
 from authentik.stages.invitation.api import InvitationStageViewSet, InvitationViewSet
 
 api_urlpatterns = [

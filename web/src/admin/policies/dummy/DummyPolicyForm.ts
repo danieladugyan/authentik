@@ -1,7 +1,8 @@
-import { BasePolicyForm } from "@goauthentik/admin/policies/BasePolicyForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
+import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
@@ -11,11 +12,19 @@ import { ifDefined } from "lit/directives/if-defined.js";
 import { DummyPolicy, PoliciesApi } from "@goauthentik/api";
 
 @customElement("ak-policy-dummy-form")
-export class DummyPolicyForm extends BasePolicyForm<DummyPolicy> {
+export class DummyPolicyForm extends ModelForm<DummyPolicy, string> {
     loadInstance(pk: string): Promise<DummyPolicy> {
         return new PoliciesApi(DEFAULT_CONFIG).policiesDummyRetrieve({
             policyUuid: pk,
         });
+    }
+
+    getSuccessMessage(): string {
+        if (this.instance) {
+            return msg("Successfully updated policy.");
+        } else {
+            return msg("Successfully created policy.");
+        }
     }
 
     async send(data: DummyPolicy): Promise<DummyPolicy> {
@@ -24,18 +33,20 @@ export class DummyPolicyForm extends BasePolicyForm<DummyPolicy> {
                 policyUuid: this.instance.pk || "",
                 dummyPolicyRequest: data,
             });
+        } else {
+            return new PoliciesApi(DEFAULT_CONFIG).policiesDummyCreate({
+                dummyPolicyRequest: data,
+            });
         }
-        return new PoliciesApi(DEFAULT_CONFIG).policiesDummyCreate({
-            dummyPolicyRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <span>
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <div class="form-help-text">
                 ${msg(
                     "A policy used for testing. Always returns the same result as specified below after waiting a random duration.",
                 )}
-            </span>
+            </div>
             <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
@@ -49,7 +60,7 @@ export class DummyPolicyForm extends BasePolicyForm<DummyPolicy> {
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.executionLogging ?? false}
+                        ?checked=${first(this.instance?.executionLogging, false)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -72,7 +83,7 @@ export class DummyPolicyForm extends BasePolicyForm<DummyPolicy> {
                             <input
                                 class="pf-c-switch__input"
                                 type="checkbox"
-                                ?checked=${this.instance?.result ?? false}
+                                ?checked=${first(this.instance?.result, false)}
                             />
                             <span class="pf-c-switch__toggle">
                                 <span class="pf-c-switch__toggle-icon">
@@ -89,7 +100,7 @@ export class DummyPolicyForm extends BasePolicyForm<DummyPolicy> {
                     >
                         <input
                             type="number"
-                            value="${this.instance?.waitMin ?? 1}"
+                            value="${first(this.instance?.waitMin, 1)}"
                             class="pf-c-form-control"
                             required
                         />
@@ -106,18 +117,13 @@ export class DummyPolicyForm extends BasePolicyForm<DummyPolicy> {
                     >
                         <input
                             type="number"
-                            value="${this.instance?.waitMax ?? 5}"
+                            value="${first(this.instance?.waitMax, 5)}"
                             class="pf-c-form-control"
                             required
                         />
                     </ak-form-element-horizontal>
                 </div>
-            </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-dummy-form": DummyPolicyForm;
+            </ak-form-group>
+        </form>`;
     }
 }

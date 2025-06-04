@@ -1,5 +1,4 @@
 """Test API Authentication"""
-
 import json
 from base64 import b64encode
 
@@ -10,11 +9,9 @@ from rest_framework.exceptions import AuthenticationFailed
 
 from authentik.api.authentication import bearer_auth
 from authentik.blueprints.tests import reconcile_app
-from authentik.core.models import Token, TokenIntents, User, UserTypes
+from authentik.core.models import USER_ATTRIBUTE_SA, Token, TokenIntents
 from authentik.core.tests.utils import create_test_admin_user, create_test_flow
 from authentik.lib.generators import generate_id
-from authentik.outposts.apps import MANAGED_OUTPOST
-from authentik.outposts.models import Outpost
 from authentik.providers.oauth2.constants import SCOPE_AUTHENTIK_API
 from authentik.providers.oauth2.models import AccessToken, OAuth2Provider
 
@@ -25,17 +22,17 @@ class TestAPIAuth(TestCase):
     def test_invalid_type(self):
         """Test invalid type"""
         with self.assertRaises(AuthenticationFailed):
-            bearer_auth(b"foo bar")
+            bearer_auth("foo bar".encode())
 
     def test_invalid_empty(self):
         """Test invalid type"""
-        self.assertIsNone(bearer_auth(b"Bearer "))
-        self.assertIsNone(bearer_auth(b""))
+        self.assertIsNone(bearer_auth("Bearer ".encode()))
+        self.assertIsNone(bearer_auth("".encode()))
 
     def test_invalid_no_token(self):
         """Test invalid with no token"""
         with self.assertRaises(AuthenticationFailed):
-            auth = b64encode(b":abc").decode()
+            auth = b64encode(":abc".encode()).decode()
             self.assertIsNone(bearer_auth(f"Basic :{auth}".encode()))
 
     def test_bearer_valid(self):
@@ -52,20 +49,16 @@ class TestAPIAuth(TestCase):
         with self.assertRaises(AuthenticationFailed):
             bearer_auth(f"Bearer {token.key}".encode())
 
-    @reconcile_app("authentik_outposts")
-    def test_managed_outpost_fail(self):
+    def test_managed_outpost(self):
         """Test managed outpost"""
-        outpost = Outpost.objects.filter(managed=MANAGED_OUTPOST).first()
-        outpost.user.delete()
-        outpost.delete()
         with self.assertRaises(AuthenticationFailed):
             bearer_auth(f"Bearer {settings.SECRET_KEY}".encode())
 
     @reconcile_app("authentik_outposts")
     def test_managed_outpost_success(self):
         """Test managed outpost"""
-        user: User = bearer_auth(f"Bearer {settings.SECRET_KEY}".encode())
-        self.assertEqual(user.type, UserTypes.INTERNAL_SERVICE_ACCOUNT)
+        user = bearer_auth(f"Bearer {settings.SECRET_KEY}".encode())
+        self.assertEqual(user.attributes[USER_ATTRIBUTE_SA], True)
 
     def test_jwt_valid(self):
         """Test valid JWT"""

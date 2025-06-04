@@ -1,15 +1,7 @@
 """API URLs"""
-
-from authentik.sources.ldap.api import (
-    GroupLDAPSourceConnectionViewSet,
-    LDAPSourcePropertyMappingViewSet,
-    LDAPSourceViewSet,
-    UserLDAPSourceConnectionViewSet,
-)
+from authentik.sources.ldap.api import LDAPPropertyMappingViewSet, LDAPSourceViewSet
 
 api_urlpatterns = [
-    ("propertymappings/source/ldap", LDAPSourcePropertyMappingViewSet),
+    ("propertymappings/ldap", LDAPPropertyMappingViewSet),
     ("sources/ldap", LDAPSourceViewSet),
-    ("sources/user_connections/ldap", UserLDAPSourceConnectionViewSet),
-    ("sources/group_connections/ldap", GroupLDAPSourceConnectionViewSet),
 ]

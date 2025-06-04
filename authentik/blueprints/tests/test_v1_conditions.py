@@ -1,5 +1,4 @@
 """Test blueprints v1"""
-
 from django.test import TransactionTestCase
 
 from authentik.blueprints.v1.importer import Importer
@@ -19,7 +18,7 @@ class TestBlueprintsV1Conditions(TransactionTestCase):
             "fixtures/conditions_fulfilled.yaml", id1=flow_slug1, id2=flow_slug2
         )
 
-        importer = Importer.from_string(import_yaml)
+        importer = Importer(import_yaml)
         self.assertTrue(importer.validate()[0])
         self.assertTrue(importer.apply())
         # Ensure objects exist
@@ -36,7 +35,7 @@ class TestBlueprintsV1Conditions(TransactionTestCase):
             "fixtures/conditions_not_fulfilled.yaml", id1=flow_slug1, id2=flow_slug2
         )
 
-        importer = Importer.from_string(import_yaml)
+        importer = Importer(import_yaml)
         self.assertTrue(importer.validate()[0])
         self.assertTrue(importer.apply())
         # Ensure objects do not exist

@@ -1,5 +1,4 @@
 """authentik login stage app config"""
-
 from django.apps import AppConfig
 
 

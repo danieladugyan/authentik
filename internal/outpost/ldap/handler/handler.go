@@ -1,3 +1,4 @@
 package handler
 
-type Handler interface{}
+type Handler interface {
+}

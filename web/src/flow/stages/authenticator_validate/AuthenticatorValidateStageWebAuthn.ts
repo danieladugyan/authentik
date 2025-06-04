@@ -1,14 +1,22 @@
 import {
-    checkWebAuthnSupport,
     transformAssertionForServer,
     transformCredentialRequestOptions,
 } from "@goauthentik/common/helpers/webauthn";
-import "@goauthentik/elements/EmptyState";
-import { BaseDeviceStage } from "@goauthentik/flow/stages/authenticator_validate/base";
+import { AuthenticatorValidateStage } from "@goauthentik/flow/stages/authenticator_validate/AuthenticatorValidateStage";
+import { BaseStage } from "@goauthentik/flow/stages/base";
 
-import { msg } from "@lit/localize";
-import { PropertyValues, TemplateResult, html, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { msg, str } from "@lit/localize";
+import { CSSResult, TemplateResult, html } from "lit";
+import { customElement, property } from "lit/decorators.js";
+
+import PFButton from "@patternfly/patternfly/components/Button/button.css";
+import PFEmptyState from "@patternfly/patternfly/components/EmptyState/empty-state.css";
+import PFForm from "@patternfly/patternfly/components/Form/form.css";
+import PFFormControl from "@patternfly/patternfly/components/FormControl/form-control.css";
+import PFLogin from "@patternfly/patternfly/components/Login/login.css";
+import PFTitle from "@patternfly/patternfly/components/Title/title.css";
+import PFBullseye from "@patternfly/patternfly/layouts/Bullseye/bullseye.css";
+import PFBase from "@patternfly/patternfly/patternfly-base.css";
 
 import {
     AuthenticatorValidationChallenge,
@@ -17,7 +25,7 @@ import {
 } from "@goauthentik/api";
 
 @customElement("ak-stage-authenticator-validate-webauthn")
-export class AuthenticatorValidateStageWebAuthn extends BaseDeviceStage<
+export class AuthenticatorValidateStageWebAuthn extends BaseStage<
     AuthenticatorValidationChallenge,
     AuthenticatorValidationChallengeResponseRequest
 > {
@@ -25,30 +33,39 @@ export class AuthenticatorValidateStageWebAuthn extends BaseDeviceStage<
     deviceChallenge?: DeviceChallenge;
 
     @property()
-    errorMessage?: string;
+    authenticateMessage?: string;
 
     @property({ type: Boolean })
     showBackButton = false;
 
-    @state()
-    authenticating = false;
-
     transformedCredentialRequestOptions?: PublicKeyCredentialRequestOptions;
+
+    static get styles(): CSSResult[] {
+        return [
+            PFBase,
+            PFLogin,
+            PFEmptyState,
+            PFBullseye,
+            PFForm,
+            PFFormControl,
+            PFTitle,
+            PFButton,
+        ];
+    }
 
     async authenticate(): Promise<void> {
         // request the authenticator to create an assertion signature using the
         // credential private key
         let assertion;
-        checkWebAuthnSupport();
         try {
             assertion = await navigator.credentials.get({
                 publicKey: this.transformedCredentialRequestOptions,
             });
             if (!assertion) {
-                throw new Error("Assertions is empty");
+                throw new Error(msg("Assertions is empty"));
             }
         } catch (err) {
-            throw new Error(`Error when creating credential: ${err}`);
+            throw new Error(msg(str`Error when creating credential: ${err}`));
         }
 
         // we now have an authentication assertion! encode the byte arrays contained
@@ -59,82 +76,77 @@ export class AuthenticatorValidateStageWebAuthn extends BaseDeviceStage<
 
         // post the assertion to the server for verification.
         try {
-            await this.host?.submit(
-                {
-                    webauthn: transformedAssertionForServer,
-                },
-                {
-                    invisible: true,
-                },
-            );
+            await this.host?.submit({
+                webauthn: transformedAssertionForServer,
+            });
         } catch (err) {
-            throw new Error(`Error when validating assertion on server: ${err}`);
+            throw new Error(msg(str`Error when validating assertion on server: ${err}`));
         }
     }
 
-    updated(changedProperties: PropertyValues<this>) {
-        if (changedProperties.has("challenge") && this.challenge !== undefined) {
-            // convert certain members of the PublicKeyCredentialRequestOptions into
-            // byte arrays as expected by the spec.
-            const credentialRequestOptions = this.deviceChallenge
-                ?.challenge as PublicKeyCredentialRequestOptions;
-            this.transformedCredentialRequestOptions =
-                transformCredentialRequestOptions(credentialRequestOptions);
-            this.authenticateWrapper();
-        }
+    firstUpdated(): void {
+        // convert certain members of the PublicKeyCredentialRequestOptions into
+        // byte arrays as expected by the spec.
+        const credentialRequestOptions = this.deviceChallenge
+            ?.challenge as PublicKeyCredentialRequestOptions;
+        this.transformedCredentialRequestOptions =
+            transformCredentialRequestOptions(credentialRequestOptions);
+        this.authenticateWrapper();
     }
 
     async authenticateWrapper(): Promise<void> {
-        if (this.authenticating) {
+        if (this.host.loading) {
             return;
         }
-        this.authenticating = true;
+        this.host.loading = true;
         this.authenticate()
-            .catch((error: unknown) => {
-                console.warn(
-                    "authentik/flows/authenticator_validate/webauthn: failed to auth",
-                    error,
-                );
-                this.errorMessage = msg("Authentication failed. Please try again.");
+            .catch((e) => {
+                console.error(e);
+                this.authenticateMessage = e.toString();
             })
             .finally(() => {
-                this.authenticating = false;
+                this.host.loading = false;
             });
     }
 
     render(): TemplateResult {
         return html`<div class="pf-c-login__main-body">
-            <form class="pf-c-form">
-                ${this.renderUserInfo()}
-                <ak-empty-state
-                    ?loading="${this.authenticating}"
-                    header=${this.authenticating
-                        ? msg("Authenticating...")
-                        : this.errorMessage || msg("Loading")}
-                    icon="fa-times"
-                >
-                </ak-empty-state>
-                <div class="pf-c-form__group pf-m-action">
-                    ${!this.authenticating
-                        ? html` <button
+                ${this.authenticateMessage
+                    ? html`<div class="pf-c-form__group pf-m-action">
+                          <p class="pf-m-block">${this.authenticateMessage}</p>
+                          <button
                               class="pf-c-button pf-m-primary pf-m-block"
                               @click=${() => {
                                   this.authenticateWrapper();
                               }}
-                              type="button"
                           >
                               ${msg("Retry authentication")}
-                          </button>`
-                        : nothing}
-                    ${this.renderReturnToDevicePicker()}
-                </div>
-            </form>
-        </div>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-authenticator-validate-webauthn": AuthenticatorValidateStageWebAuthn;
+                          </button>
+                      </div>`
+                    : html`<div class="pf-c-form__group pf-m-action">
+                          <p class="pf-m-block">&nbsp;</p>
+                          <p class="pf-m-block">&nbsp;</p>
+                          <p class="pf-m-block">&nbsp;</p>
+                      </div> `}
+            </div>
+            <footer class="pf-c-login__main-footer">
+                <ul class="pf-c-login__main-footer-links">
+                    ${this.showBackButton
+                        ? html`<li class="pf-c-login__main-footer-links-item">
+                              <button
+                                  class="pf-c-button pf-m-secondary pf-m-block"
+                                  @click=${() => {
+                                      if (!this.host) return;
+                                      (
+                                          this.host as AuthenticatorValidateStage
+                                      ).selectedDeviceChallenge = undefined;
+                                  }}
+                              >
+                                  ${msg("Return to device picker")}
+                              </button>
+                          </li>`
+                        : html``}
+                </ul>
+            </footer>`;
     }
 }

@@ -1,5 +1,4 @@
 """logout request tests"""
-
 from django.test import TestCase
 
 from authentik.blueprints.tests import apply_blueprint

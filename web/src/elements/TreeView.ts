@@ -50,7 +50,7 @@ export class TreeViewNode extends AKElement {
         return pathItems.reverse().join(this.separator);
     }
 
-    protected createRenderRoot() {
+    protected createRenderRoot(): Element {
         return this;
     }
 
@@ -59,7 +59,7 @@ export class TreeViewNode extends AKElement {
         const level = this.item?.level || 0;
         // Ignore the last item as that shouldn't be expanded
         pathSegments.pop();
-        if (pathSegments[level] === this.item?.id) {
+        if (pathSegments[level] == this.item?.id) {
             this.open = true;
         }
         if (this.activePath === this.fullPath && this.host !== undefined) {
@@ -89,9 +89,6 @@ export class TreeViewNode extends AKElement {
                                 new CustomEvent(EVENT_REFRESH, {
                                     bubbles: true,
                                     composed: true,
-                                    detail: {
-                                        path: this.fullPath,
-                                    },
                                 }),
                             );
                         }}
@@ -157,7 +154,7 @@ export class TreeView extends AKElement {
     createNode(path: string[], parentItem: TreeViewItem, level: number): TreeViewItem {
         const id = path.shift();
         const idx = parentItem.childItems.findIndex((e: TreeViewItem) => {
-            return e.id === id;
+            return e.id == id;
         });
         if (idx < 0) {
             const item: TreeViewItem = {
@@ -173,8 +170,10 @@ export class TreeView extends AKElement {
                 child.parent = item;
             }
             return item;
+        } else {
+            const child = this.createNode(path, parentItem.childItems[idx], level + 1);
+            return child;
         }
-        return this.createNode(path, parentItem.childItems[idx], level + 1);
     }
 
     parse(data: string[]): TreeViewItem {
@@ -205,12 +204,5 @@ export class TreeView extends AKElement {
                 ></ak-treeview-node>
             </ul>
         </div>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-treeview": TreeView;
-        "ak-treeview-node": TreeViewNode;
     }
 }

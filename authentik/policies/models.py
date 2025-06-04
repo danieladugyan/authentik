@@ -1,5 +1,4 @@
 """Policy base models"""
-
 from uuid import uuid4
 
 from django.db import models
@@ -40,23 +39,12 @@ class PolicyBindingModel(models.Model):
 
     objects = InheritanceManager()
 
-    class Meta:
-        verbose_name = _("Policy Binding Model")
-        verbose_name_plural = _("Policy Binding Models")
-
     def __str__(self) -> str:
         return f"PolicyBindingModel {self.pbm_uuid}"
 
-    def supported_policy_binding_targets(self):
-        """Return the list of objects that can be bound to this object."""
-        return ["policy", "user", "group"]
-
-
-class BoundPolicyQuerySet(models.QuerySet):
-    """QuerySet for filtering enabled bindings for a Policy type"""
-
-    def for_policy(self, policy: "Policy"):
-        return self.filter(policy__in=policy._default_manager.all()).filter(enabled=True)
+    class Meta:
+        verbose_name = _("Policy Binding Model")
+        verbose_name_plural = _("Policy Binding Models")
 
 
 class PolicyBinding(SerializerModel):
@@ -92,18 +80,13 @@ class PolicyBinding(SerializerModel):
         blank=True,
     )
 
-    target = InheritanceForeignKey(
-        PolicyBindingModel, on_delete=models.CASCADE, related_name="bindings"
-    )
+    target = InheritanceForeignKey(PolicyBindingModel, on_delete=models.CASCADE, related_name="+")
     negate = models.BooleanField(
         default=False,
         help_text=_("Negates the outcome of the policy. Messages are unaffected."),
     )
-    timeout = models.PositiveIntegerField(
+    timeout = models.IntegerField(
         default=30, help_text=_("Timeout after which Policy execution is terminated.")
-    )
-    failure_result = models.BooleanField(
-        default=False, help_text=_("Result if the Policy execution fails.")
     )
 
     order = models.IntegerField()
@@ -151,12 +134,9 @@ class PolicyBinding(SerializerModel):
         suffix = f"{self.target_type.title()} {self.target_name}"
         try:
             return f"Binding from {self.target} #{self.order} to {suffix}"
-        except PolicyBinding.target.RelatedObjectDoesNotExist:
+        except PolicyBinding.target.RelatedObjectDoesNotExist:  # pylint: disable=no-member
             return f"Binding - #{self.order} to {suffix}"
         return ""
-
-    objects = models.Manager()
-    in_use = BoundPolicyQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("Policy Binding")
@@ -207,8 +187,8 @@ class Policy(SerializerModel, CreatedUpdatedModel):
         verbose_name_plural = _("Policies")
 
         permissions = [
-            ("view_policy_cache", _("View Policy's cache metrics")),
-            ("clear_policy_cache", _("Clear Policy's cache metrics")),
+            ("view_policy_cache", "View Policy's cache metrics"),
+            ("clear_policy_cache", "Clear Policy's cache metrics"),
         ]
 
     class PolicyMeta:

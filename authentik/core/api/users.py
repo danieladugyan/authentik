@@ -1,12 +1,13 @@
 """User API Views"""
-
 from datetime import timedelta
 from json import loads
-from typing import Any
+from typing import Any, Optional
 
 from django.contrib.auth import update_session_auth_hash
-from django.contrib.auth.models import Permission
+from django.contrib.sessions.backends.cache import KEY_PREFIX
+from django.core.cache import cache
 from django.db.models.functions import ExtractHour
+from django.db.models.query import QuerySet
 from django.db.transaction import atomic
 from django.db.utils import IntegrityError
 from django.urls import reverse_lazy
@@ -14,13 +15,7 @@ from django.utils.http import urlencode
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django.utils.translation import gettext as _
-from django_filters.filters import (
-    BooleanFilter,
-    CharFilter,
-    ModelMultipleChoiceFilter,
-    MultipleChoiceFilter,
-    UUIDFilter,
-)
+from django_filters.filters import BooleanFilter, CharFilter, ModelMultipleChoiceFilter, UUIDFilter
 from django_filters.filterset import FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -30,64 +25,59 @@ from drf_spectacular.utils import (
     extend_schema_field,
     inline_serializer,
 )
-from guardian.shortcuts import get_objects_for_user
+from guardian.shortcuts import get_anonymous_user, get_objects_for_user
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.fields import (
-    BooleanField,
     CharField,
-    ChoiceField,
-    DateTimeField,
     IntegerField,
+    JSONField,
     ListField,
     SerializerMethodField,
 )
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import (
+    BooleanField,
+    DateTimeField,
     ListSerializer,
+    ModelSerializer,
     PrimaryKeyRelatedField,
+    ValidationError,
 )
 from rest_framework.validators import UniqueValidator
 from rest_framework.viewsets import ModelViewSet
+from rest_framework_guardian.filters import ObjectPermissionsFilter
 from structlog.stdlib import get_logger
 
 from authentik.admin.api.metrics import CoordinateSerializer
+from authentik.api.decorators import permission_required
 from authentik.blueprints.v1.importer import SERIALIZER_CONTEXT_BLUEPRINT
-from authentik.brands.models import Brand
 from authentik.core.api.used_by import UsedByMixin
-from authentik.core.api.utils import (
-    JSONDictField,
-    LinkSerializer,
-    ModelSerializer,
-    PassiveSerializer,
-)
+from authentik.core.api.utils import LinkSerializer, PassiveSerializer, is_dict
 from authentik.core.middleware import (
     SESSION_KEY_IMPERSONATE_ORIGINAL_USER,
     SESSION_KEY_IMPERSONATE_USER,
 )
 from authentik.core.models import (
+    USER_ATTRIBUTE_SA,
     USER_ATTRIBUTE_TOKEN_EXPIRING,
     USER_PATH_SERVICE_ACCOUNT,
+    AuthenticatedSession,
     Group,
-    Session,
     Token,
     TokenIntents,
     User,
-    UserTypes,
 )
 from authentik.events.models import Event, EventAction
 from authentik.flows.exceptions import FlowNonApplicableException
 from authentik.flows.models import FlowToken
 from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER, FlowPlanner
 from authentik.flows.views.executor import QS_KEY_TOKEN
-from authentik.lib.avatars import get_avatar
-from authentik.rbac.decorators import permission_required
-from authentik.rbac.models import get_permission_choices
-from authentik.stages.email.flow import pickle_flow_token_for_email
+from authentik.lib.config import CONFIG
 from authentik.stages.email.models import EmailStage
 from authentik.stages.email.tasks import send_mails
 from authentik.stages.email.utils import TemplateEmailMessage
+from authentik.tenants.models import Tenant
 
 LOGGER = get_logger()
 
@@ -95,8 +85,8 @@ LOGGER = get_logger()
 class UserGroupSerializer(ModelSerializer):
     """Simplified Group Serializer for user's groups"""
 
-    attributes = JSONDictField(required=False)
-    parent_name = CharField(source="parent.name", read_only=True, allow_null=True)
+    attributes = JSONField(required=False)
+    parent_name = CharField(source="parent.name", read_only=True)
 
     class Meta:
         model = Group
@@ -115,81 +105,38 @@ class UserSerializer(ModelSerializer):
     """User Serializer"""
 
     is_superuser = BooleanField(read_only=True)
-    avatar = SerializerMethodField()
-    attributes = JSONDictField(required=False)
+    avatar = CharField(read_only=True)
+    attributes = JSONField(validators=[is_dict], required=False)
     groups = PrimaryKeyRelatedField(
-        allow_empty=True,
-        many=True,
-        source="ak_groups",
-        queryset=Group.objects.all().order_by("name"),
-        default=list,
+        allow_empty=True, many=True, source="ak_groups", queryset=Group.objects.all(), default=list
     )
-    groups_obj = SerializerMethodField(allow_null=True)
+    groups_obj = ListSerializer(child=UserGroupSerializer(), read_only=True, source="ak_groups")
     uid = CharField(read_only=True)
-    username = CharField(
-        max_length=150,
-        validators=[UniqueValidator(queryset=User.objects.all().order_by("username"))],
-    )
-
-    @property
-    def _should_include_groups(self) -> bool:
-        request: Request = self.context.get("request", None)
-        if not request:
-            return True
-        return str(request.query_params.get("include_groups", "true")).lower() == "true"
-
-    @extend_schema_field(UserGroupSerializer(many=True))
-    def get_groups_obj(self, instance: User) -> list[UserGroupSerializer] | None:
-        if not self._should_include_groups:
-            return None
-        return UserGroupSerializer(instance.ak_groups, many=True).data
+    username = CharField(max_length=150, validators=[UniqueValidator(queryset=User.objects.all())])
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if SERIALIZER_CONTEXT_BLUEPRINT in self.context:
-            self.fields["password"] = CharField(required=False, allow_null=True)
-            self.fields["permissions"] = ListField(
-                required=False, child=ChoiceField(choices=get_permission_choices())
-            )
+            self.fields["password"] = CharField(required=False)
 
     def create(self, validated_data: dict) -> User:
         """If this serializer is used in the blueprint context, we allow for
         directly setting a password. However should be done via the `set_password`
         method instead of directly setting it like rest_framework."""
-        password = validated_data.pop("password", None)
-        permissions = Permission.objects.filter(
-            codename__in=[x.split(".")[1] for x in validated_data.pop("permissions", [])]
-        )
-        validated_data["user_permissions"] = permissions
         instance: User = super().create(validated_data)
-        self._set_password(instance, password)
+        if SERIALIZER_CONTEXT_BLUEPRINT in self.context and "password" in validated_data:
+            instance.set_password(validated_data["password"])
+            instance.save()
         return instance
 
     def update(self, instance: User, validated_data: dict) -> User:
         """Same as `create` above, set the password directly if we're in a blueprint
         context"""
-        password = validated_data.pop("password", None)
-        permissions = Permission.objects.filter(
-            codename__in=[x.split(".")[1] for x in validated_data.pop("permissions", [])]
-        )
-        validated_data["user_permissions"] = permissions
         instance = super().update(instance, validated_data)
-        self._set_password(instance, password)
+        if SERIALIZER_CONTEXT_BLUEPRINT in self.context and "password" in validated_data:
+            instance.set_password(validated_data["password"])
+            instance.save()
         return instance
-
-    def _set_password(self, instance: User, password: str | None):
-        """Set password of user if we're in a blueprint context, and if it's an empty
-        string then use an unusable password"""
-        if SERIALIZER_CONTEXT_BLUEPRINT in self.context and password:
-            instance.set_password(password)
-            instance.save()
-        if len(instance.password) == 0:
-            instance.set_unusable_password()
-            instance.save()
-
-    def get_avatar(self, user: User) -> str:
-        """User's avatar, either a http/https URL or a data URI"""
-        return get_avatar(user, self.context.get("request"))
 
     def validate_path(self, path: str) -> str:
         """Validate path"""
@@ -200,23 +147,6 @@ class UserSerializer(ModelSerializer):
                 raise ValidationError(_("No empty segments in user path allowed."))
         return path
 
-    def validate_type(self, user_type: str) -> str:
-        """Validate user type, internal_service_account is an internal value"""
-        if (
-            self.instance
-            and self.instance.type == UserTypes.INTERNAL_SERVICE_ACCOUNT
-            and user_type != UserTypes.INTERNAL_SERVICE_ACCOUNT.value
-        ):
-            raise ValidationError("Can't change internal service account to other user type.")
-        if not self.instance and user_type == UserTypes.INTERNAL_SERVICE_ACCOUNT.value:
-            raise ValidationError("Setting a user to internal service account is not allowed.")
-        return user_type
-
-    def validate(self, attrs: dict) -> dict:
-        if self.instance and self.instance.type == UserTypes.INTERNAL_SERVICE_ACCOUNT:
-            raise ValidationError("Can't modify internal service account users")
-        return super().validate(attrs)
-
     class Meta:
         model = User
         fields = [
@@ -225,7 +155,6 @@ class UserSerializer(ModelSerializer):
             "name",
             "is_active",
             "last_login",
-            "date_joined",
             "is_superuser",
             "groups",
             "groups_obj",
@@ -234,14 +163,9 @@ class UserSerializer(ModelSerializer):
             "attributes",
             "uid",
             "path",
-            "type",
-            "uuid",
-            "password_change_date",
         ]
         extra_kwargs = {
             "name": {"allow_blank": True},
-            "date_joined": {"read_only": True},
-            "password_change_date": {"read_only": True},
         }
 
 
@@ -249,15 +173,10 @@ class UserSelfSerializer(ModelSerializer):
     """User Serializer for information a user can retrieve about themselves"""
 
     is_superuser = BooleanField(read_only=True)
-    avatar = SerializerMethodField()
+    avatar = CharField(read_only=True)
     groups = SerializerMethodField()
     uid = CharField(read_only=True)
     settings = SerializerMethodField()
-    system_permissions = SerializerMethodField()
-
-    def get_avatar(self, user: User) -> str:
-        """User's avatar, either a http/https URL or a data URI"""
-        return get_avatar(user, self.context.get("request"))
 
     @extend_schema_field(
         ListSerializer(
@@ -269,23 +188,15 @@ class UserSelfSerializer(ModelSerializer):
     )
     def get_groups(self, _: User):
         """Return only the group names a user is member of"""
-        for group in self.instance.all_groups().order_by("name"):
+        for group in self.instance.ak_groups.all():
             yield {
                 "name": group.name,
                 "pk": group.pk,
             }
 
     def get_settings(self, user: User) -> dict[str, Any]:
-        """Get user settings with brand and group settings applied"""
+        """Get user settings with tenant and group settings applied"""
         return user.group_attributes(self._context["request"]).get("settings", {})
-
-    def get_system_permissions(self, user: User) -> list[str]:
-        """Get all system permissions assigned to the user"""
-        return list(
-            x.split(".", maxsplit=1)[1]
-            for x in user.get_all_permissions()
-            if x.startswith("authentik_rbac")
-        )
 
     class Meta:
         model = User
@@ -300,8 +211,6 @@ class UserSelfSerializer(ModelSerializer):
             "avatar",
             "uid",
             "settings",
-            "type",
-            "system_permissions",
         ]
         extra_kwargs = {
             "is_active": {"read_only": True},
@@ -374,35 +283,30 @@ class UsersFilter(FilterSet):
         method="filter_attributes",
     )
 
-    is_superuser = BooleanFilter(field_name="ak_groups", method="filter_is_superuser")
+    is_superuser = BooleanFilter(field_name="ak_groups", lookup_expr="is_superuser")
     uuid = UUIDFilter(field_name="uuid")
 
-    path = CharFilter(field_name="path")
+    path = CharFilter(
+        field_name="path",
+    )
     path_startswith = CharFilter(field_name="path", lookup_expr="startswith")
-
-    type = MultipleChoiceFilter(choices=UserTypes.choices, field_name="type")
 
     groups_by_name = ModelMultipleChoiceFilter(
         field_name="ak_groups__name",
         to_field_name="name",
-        queryset=Group.objects.all().order_by("name"),
+        queryset=Group.objects.all(),
     )
     groups_by_pk = ModelMultipleChoiceFilter(
         field_name="ak_groups",
-        queryset=Group.objects.all().order_by("name"),
+        queryset=Group.objects.all(),
     )
-
-    def filter_is_superuser(self, queryset, name, value):
-        if value:
-            return queryset.filter(ak_groups__is_superuser=True).distinct()
-        return queryset.exclude(ak_groups__is_superuser=True).distinct()
 
     def filter_attributes(self, queryset, name, value):
         """Filter attributes by query args"""
         try:
             value = loads(value)
         except ValueError:
-            raise ValidationError(detail="filter: failed to parse JSON") from None
+            raise ValidationError(detail="filter: failed to parse JSON")
         if not isinstance(value, dict):
             raise ValidationError(detail="filter: value must be key:value mapping")
         qs = {}
@@ -425,7 +329,6 @@ class UsersFilter(FilterSet):
             "attributes",
             "groups_by_name",
             "groups_by_pk",
-            "type",
         ]
 
 
@@ -435,31 +338,21 @@ class UserViewSet(UsedByMixin, ModelViewSet):
     queryset = User.objects.none()
     ordering = ["username"]
     serializer_class = UserSerializer
-    search_fields = ["username", "name", "is_active", "email", "uuid", "attributes"]
+    search_fields = ["username", "name", "is_active", "email", "uuid"]
     filterset_class = UsersFilter
 
-    def get_queryset(self):
-        base_qs = User.objects.all().exclude_anonymous()
-        if self.serializer_class(context={"request": self.request})._should_include_groups:
-            base_qs = base_qs.prefetch_related("ak_groups")
-        return base_qs
+    def get_queryset(self):  # pragma: no cover
+        return User.objects.all().exclude(pk=get_anonymous_user().pk)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter("include_groups", bool, default=True),
-        ]
-    )
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    def _create_recovery_link(self, for_email=False) -> tuple[str, Token]:
-        """Create a recovery link (when the current brand has a recovery flow set),
+    def _create_recovery_link(self) -> tuple[Optional[str], Optional[Token]]:
+        """Create a recovery link (when the current tenant has a recovery flow set),
         that can either be shown to an admin or sent to the user directly"""
-        brand: Brand = self.request._request.brand
+        tenant: Tenant = self.request._request.tenant
         # Check that there is a recovery flow, if not return an error
-        flow = brand.flow_recovery
+        flow = tenant.flow_recovery
         if not flow:
-            raise ValidationError({"non_field_errors": "No recovery flow set."})
+            LOGGER.debug("No recovery flow set")
+            return None, None
         user: User = self.get_object()
         planner = FlowPlanner(flow)
         planner.allow_empty_flows = True
@@ -471,19 +364,14 @@ class UserViewSet(UsedByMixin, ModelViewSet):
                 },
             )
         except FlowNonApplicableException:
-            raise ValidationError(
-                {"non_field_errors": "Recovery flow not applicable to user"}
-            ) from None
-        _plan = FlowToken.pickle(plan)
-        if for_email:
-            _plan = pickle_flow_token_for_email(plan)
+            LOGGER.warning("Recovery flow not applicable to user")
+            return None, None
         token, __ = FlowToken.objects.update_or_create(
             identifier=f"{user.uid}-password-reset",
             defaults={
                 "user": user,
                 "flow": flow,
-                "_plan": _plan,
-                "revoke_on_execution": not for_email,
+                "_plan": FlowToken.pickle(plan),
             },
         )
         querystring = urlencode({QS_KEY_TOKEN: token.key})
@@ -533,8 +421,7 @@ class UserViewSet(UsedByMixin, ModelViewSet):
                 user: User = User.objects.create(
                     username=username,
                     name=username,
-                    type=UserTypes.SERVICE_ACCOUNT,
-                    attributes={USER_ATTRIBUTE_TOKEN_EXPIRING: expiring},
+                    attributes={USER_ATTRIBUTE_SA: True, USER_ATTRIBUTE_TOKEN_EXPIRING: expiring},
                     path=USER_PATH_SERVICE_ACCOUNT,
                 )
                 user.set_unusable_password()
@@ -592,12 +479,12 @@ class UserViewSet(UsedByMixin, ModelViewSet):
             400: OpenApiResponse(description="Bad request"),
         },
     )
-    @action(detail=True, methods=["POST"], permission_classes=[])
+    @action(detail=True, methods=["POST"])
     def set_password(self, request: Request, pk: int) -> Response:
         """Set password for user"""
         user: User = self.get_object()
         try:
-            user.set_password(request.data.get("password"), request=request)
+            user.set_password(request.data.get("password"))
             user.save()
         except (ValidationError, IntegrityError) as exc:
             LOGGER.debug("Failed to set password", exc=exc)
@@ -622,13 +509,16 @@ class UserViewSet(UsedByMixin, ModelViewSet):
     @extend_schema(
         responses={
             "200": LinkSerializer(many=False),
+            "404": LinkSerializer(many=False),
         },
-        request=None,
     )
-    @action(detail=True, pagination_class=None, filter_backends=[], methods=["POST"])
+    @action(detail=True, pagination_class=None, filter_backends=[])
     def recovery(self, request: Request, pk: int) -> Response:
         """Create a temporary link that a user can use to recover their accounts"""
         link, _ = self._create_recovery_link()
+        if not link:
+            LOGGER.debug("Couldn't create token")
+            return Response({"link": ""}, status=404)
         return Response({"link": link})
 
     @permission_required("authentik_core.reset_user_password")
@@ -643,28 +533,31 @@ class UserViewSet(UsedByMixin, ModelViewSet):
         ],
         responses={
             "204": OpenApiResponse(description="Successfully sent recover email"),
+            "404": OpenApiResponse(description="Bad request"),
         },
-        request=None,
     )
-    @action(detail=True, pagination_class=None, filter_backends=[], methods=["POST"])
+    @action(detail=True, pagination_class=None, filter_backends=[])
     def recovery_email(self, request: Request, pk: int) -> Response:
         """Create a temporary link that a user can use to recover their accounts"""
         for_user: User = self.get_object()
         if for_user.email == "":
             LOGGER.debug("User doesn't have an email address")
-            raise ValidationError({"non_field_errors": "User does not have an email address set."})
-        link, token = self._create_recovery_link(for_email=True)
+            return Response(status=404)
+        link, token = self._create_recovery_link()
+        if not link:
+            LOGGER.debug("Couldn't create token")
+            return Response(status=404)
         # Lookup the email stage to assure the current user can access it
         stages = get_objects_for_user(
             request.user, "authentik_stages_email.view_emailstage"
         ).filter(pk=request.query_params.get("email_stage"))
         if not stages.exists():
             LOGGER.debug("Email stage does not exist/user has no permissions")
-            raise ValidationError({"non_field_errors": "Email stage does not exist."})
+            return Response(status=404)
         email_stage: EmailStage = stages.first()
         message = TemplateEmailMessage(
             subject=_(email_stage.subject),
-            to=[(for_user.name, for_user.email)],
+            to=[for_user.email],
             template_name=email_stage.template,
             language=for_user.locale(request),
             template_context={
@@ -678,44 +571,28 @@ class UserViewSet(UsedByMixin, ModelViewSet):
 
     @permission_required("authentik_core.impersonate")
     @extend_schema(
-        request=inline_serializer(
-            "ImpersonationSerializer",
-            {
-                "reason": CharField(required=True),
-            },
-        ),
+        request=OpenApiTypes.NONE,
         responses={
             "204": OpenApiResponse(description="Successfully started impersonation"),
             "401": OpenApiResponse(description="Access denied"),
         },
     )
-    @action(detail=True, methods=["POST"], permission_classes=[])
+    @action(detail=True, methods=["POST"])
     def impersonate(self, request: Request, pk: int) -> Response:
         """Impersonate a user"""
-        if not request.tenant.impersonation:
+        if not CONFIG.y_bool("impersonation"):
             LOGGER.debug("User attempted to impersonate", user=request.user)
             return Response(status=401)
-        user_to_be = self.get_object()
-        reason = request.data.get("reason", "")
-        # Check both object-level perms and global perms
-        if not request.user.has_perm(
-            "authentik_core.impersonate", user_to_be
-        ) and not request.user.has_perm("authentik_core.impersonate"):
+        if not request.user.has_perm("impersonate"):
             LOGGER.debug("User attempted to impersonate without permissions", user=request.user)
             return Response(status=401)
-        if user_to_be.pk == self.request.user.pk:
-            LOGGER.debug("User attempted to impersonate themselves", user=request.user)
-            return Response(status=401)
-        if not reason and request.tenant.impersonation_require_reason:
-            LOGGER.debug(
-                "User attempted to impersonate without providing a reason", user=request.user
-            )
-            return Response(status=401)
+
+        user_to_be = self.get_object()
 
         request.session[SESSION_KEY_IMPERSONATE_ORIGINAL_USER] = request.user
         request.session[SESSION_KEY_IMPERSONATE_USER] = user_to_be
 
-        Event.new(EventAction.IMPERSONATION_STARTED, reason=reason).from_http(request, user_to_be)
+        Event.new(EventAction.IMPERSONATION_STARTED).from_http(request, user_to_be)
 
         return Response(status=201)
 
@@ -743,6 +620,19 @@ class UserViewSet(UsedByMixin, ModelViewSet):
         Event.new(EventAction.IMPERSONATION_ENDED).from_http(request, original_user)
 
         return Response(status=204)
+
+    def _filter_queryset_for_list(self, queryset: QuerySet) -> QuerySet:
+        """Custom filter_queryset method which ignores guardian, but still supports sorting"""
+        for backend in list(self.filter_backends):
+            if backend == ObjectPermissionsFilter:
+                continue
+            queryset = backend().filter_queryset(self.request, queryset, self)
+        return queryset
+
+    def filter_queryset(self, queryset):
+        if self.request.user.has_perm("authentik_core.view_user"):
+            return self._filter_queryset_for_list(queryset)
+        return super().filter_queryset(queryset)
 
     @extend_schema(
         responses={
@@ -777,6 +667,9 @@ class UserViewSet(UsedByMixin, ModelViewSet):
         response = super().partial_update(request, *args, **kwargs)
         instance: User = self.get_object()
         if not instance.is_active:
-            Session.objects.filter(authenticatedsession__user=instance).delete()
+            sessions = AuthenticatedSession.objects.filter(user=instance)
+            session_ids = sessions.values_list("session_key", flat=True)
+            cache.delete_many(f"{KEY_PREFIX}{session}" for session in session_ids)
+            sessions.delete()
             LOGGER.debug("Deleted user's sessions", user=instance.username)
         return response

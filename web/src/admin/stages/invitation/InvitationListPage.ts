@@ -1,16 +1,15 @@
-import "#admin/rbac/ObjectPermissionModal";
-import "#admin/stages/invitation/InvitationForm";
-import "#admin/stages/invitation/InvitationListLink";
-import { DEFAULT_CONFIG } from "#common/api/config";
-import { PFColor } from "#elements/Label";
-import "#elements/buttons/ModalButton";
-import "#elements/buttons/SpinnerButton/ak-spinner-button";
-import "#elements/forms/DeleteBulkForm";
-import "#elements/forms/ModalForm";
-import { PaginatedResponse } from "#elements/table/Table";
-import { TableColumn } from "#elements/table/Table";
-import { TablePage } from "#elements/table/TablePage";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
+import "@goauthentik/admin/stages/invitation/InvitationForm";
+import "@goauthentik/admin/stages/invitation/InvitationListLink";
+import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
+import { PFColor } from "@goauthentik/elements/Label";
+import "@goauthentik/elements/buttons/ModalButton";
+import "@goauthentik/elements/buttons/SpinnerButton";
+import "@goauthentik/elements/forms/DeleteBulkForm";
+import "@goauthentik/elements/forms/ModalForm";
+import { PaginatedResponse } from "@goauthentik/elements/table/Table";
+import { TableColumn } from "@goauthentik/elements/table/Table";
+import { TablePage } from "@goauthentik/elements/table/TablePage";
 
 import { msg } from "@lit/localize";
 import { CSSResult, TemplateResult, html } from "lit";
@@ -19,12 +18,7 @@ import { ifDefined } from "lit/directives/if-defined.js";
 
 import PFBanner from "@patternfly/patternfly/components/Banner/banner.css";
 
-import {
-    FlowDesignationEnum,
-    Invitation,
-    RbacPermissionsAssignedByUsersListModelEnum,
-    StagesApi,
-} from "@goauthentik/api";
+import { FlowDesignationEnum, Invitation, StagesApi } from "@goauthentik/api";
 
 @customElement("ak-stage-invitation-list")
 export class InvitationListPage extends TablePage<Invitation> {
@@ -50,7 +44,6 @@ export class InvitationListPage extends TablePage<Invitation> {
     }
 
     checkbox = true;
-    clearOnRefresh = true;
 
     @property()
     order = "expires";
@@ -61,27 +54,26 @@ export class InvitationListPage extends TablePage<Invitation> {
     @state()
     multipleEnrollmentFlows = false;
 
-    async apiEndpoint(): Promise<PaginatedResponse<Invitation>> {
-        try {
-            // Check if any invitation stages exist
-            const stages = await new StagesApi(DEFAULT_CONFIG).stagesInvitationStagesList({
-                noFlows: false,
-            });
-            this.invitationStageExists = stages.pagination.count > 0;
-            this.expandable = this.invitationStageExists;
-            stages.results.forEach((stage) => {
-                const enrollmentFlows = (stage.flowSet || []).filter(
-                    (flow) => flow.designation === FlowDesignationEnum.Enrollment,
-                );
-                if (enrollmentFlows.length > 1) {
-                    this.multipleEnrollmentFlows = true;
-                }
-            });
-        } catch {
-            // assuming we can't fetch stages, ignore the error
-        }
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Invitation>> {
+        // Check if any invitation stages exist
+        const stages = await new StagesApi(DEFAULT_CONFIG).stagesInvitationStagesList({
+            noFlows: false,
+        });
+        this.invitationStageExists = stages.pagination.count > 0;
+        this.expandable = this.invitationStageExists;
+        stages.results.forEach((stage) => {
+            const enrollmentFlows = (stage.flowSet || []).filter(
+                (flow) => flow.designation === FlowDesignationEnum.Enrollment,
+            );
+            if (enrollmentFlows.length > 1) {
+                this.multipleEnrollmentFlows = true;
+            }
+        });
         return new StagesApi(DEFAULT_CONFIG).stagesInvitationInvitationsList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
         });
     }
 
@@ -131,20 +123,13 @@ export class InvitationListPage extends TablePage<Invitation> {
             html`${item.createdBy?.username}`,
             html`${item.expires?.toLocaleString() || msg("-")}`,
             html` <ak-forms-modal>
-                    <span slot="submit"> ${msg("Update")} </span>
-                    <span slot="header"> ${msg("Update Invitation")} </span>
-                    <ak-invitation-form slot="form" .instancePk=${item.pk}> </ak-invitation-form>
-                    <button slot="trigger" class="pf-c-button pf-m-plain">
-                        <pf-tooltip position="top" content=${msg("Edit")}>
-                            <i class="fas fa-edit"></i>
-                        </pf-tooltip>
-                    </button>
-                </ak-forms-modal>
-                <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikStagesInvitationInvitation}
-                    objectPk=${item.pk}
-                >
-                </ak-rbac-object-permission-modal>`,
+                <span slot="submit"> ${msg("Update")} </span>
+                <span slot="header"> ${msg("Update Invitation")} </span>
+                <ak-invitation-form slot="form" .instancePk=${item.pk}> </ak-invitation-form>
+                <button slot="trigger" class="pf-c-button pf-m-plain">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </ak-forms-modal>`,
         ];
     }
 
@@ -191,11 +176,5 @@ export class InvitationListPage extends TablePage<Invitation> {
             <section class="pf-c-page__main-section pf-m-no-padding-mobile">
                 <div class="pf-c-card">${this.renderTable()}</div>
             </section>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-invitation-list": InvitationListPage;
     }
 }

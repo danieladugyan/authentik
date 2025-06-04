@@ -1,5 +1,4 @@
 """Authenticator Validation Stage"""
-
 from django.apps import AppConfig
 
 

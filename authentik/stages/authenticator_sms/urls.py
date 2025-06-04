@@ -1,5 +1,4 @@
 """API URLs"""
-
 from authentik.stages.authenticator_sms.api import (
     AuthenticatorSMSStageViewSet,
     SMSAdminDeviceViewSet,

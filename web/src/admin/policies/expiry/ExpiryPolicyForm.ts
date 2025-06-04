@@ -1,7 +1,8 @@
-import { BasePolicyForm } from "@goauthentik/admin/policies/BasePolicyForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
+import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
@@ -11,11 +12,19 @@ import { ifDefined } from "lit/directives/if-defined.js";
 import { PasswordExpiryPolicy, PoliciesApi } from "@goauthentik/api";
 
 @customElement("ak-policy-password-expiry-form")
-export class PasswordExpiryPolicyForm extends BasePolicyForm<PasswordExpiryPolicy> {
+export class PasswordExpiryPolicyForm extends ModelForm<PasswordExpiryPolicy, string> {
     loadInstance(pk: string): Promise<PasswordExpiryPolicy> {
         return new PoliciesApi(DEFAULT_CONFIG).policiesPasswordExpiryRetrieve({
             policyUuid: pk,
         });
+    }
+
+    getSuccessMessage(): string {
+        if (this.instance) {
+            return msg("Successfully updated policy.");
+        } else {
+            return msg("Successfully created policy.");
+        }
     }
 
     async send(data: PasswordExpiryPolicy): Promise<PasswordExpiryPolicy> {
@@ -24,18 +33,20 @@ export class PasswordExpiryPolicyForm extends BasePolicyForm<PasswordExpiryPolic
                 policyUuid: this.instance.pk || "",
                 passwordExpiryPolicyRequest: data,
             });
+        } else {
+            return new PoliciesApi(DEFAULT_CONFIG).policiesPasswordExpiryCreate({
+                passwordExpiryPolicyRequest: data,
+            });
         }
-        return new PoliciesApi(DEFAULT_CONFIG).policiesPasswordExpiryCreate({
-            passwordExpiryPolicyRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <span>
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <div class="form-help-text">
                 ${msg(
                     "Checks if the request's user's password has been changed in the last x days, and denys based on settings.",
                 )}
-            </span>
+            </div>
             <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
@@ -49,7 +60,7 @@ export class PasswordExpiryPolicyForm extends BasePolicyForm<PasswordExpiryPolic
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.executionLogging ?? false}
+                        ?checked=${first(this.instance?.executionLogging, false)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -84,7 +95,7 @@ export class PasswordExpiryPolicyForm extends BasePolicyForm<PasswordExpiryPolic
                             <input
                                 class="pf-c-switch__input"
                                 type="checkbox"
-                                ?checked=${this.instance?.denyOnly ?? false}
+                                ?checked=${first(this.instance?.denyOnly, false)}
                             />
                             <span class="pf-c-switch__toggle">
                                 <span class="pf-c-switch__toggle-icon">
@@ -99,12 +110,7 @@ export class PasswordExpiryPolicyForm extends BasePolicyForm<PasswordExpiryPolic
                         </label>
                     </ak-form-element-horizontal>
                 </div>
-            </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-password-expiry-form": PasswordExpiryPolicyForm;
+            </ak-form-group>
+        </form>`;
     }
 }

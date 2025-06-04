@@ -1,5 +1,4 @@
 """Device backchannel tests"""
-
 from json import loads
 
 from django.urls import reverse

@@ -28,8 +28,4 @@ class Migration(migrations.Migration):
                 verbose_name="Managed by authentik",
             ),
         ),
-        migrations.AlterModelOptions(
-            name="outpost",
-            options={"verbose_name": "Outpost", "verbose_name_plural": "Outposts"},
-        ),
     ]

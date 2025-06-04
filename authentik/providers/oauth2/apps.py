@@ -1,9 +1,8 @@
 """authentik oauth provider app config"""
+from django.apps import AppConfig
 
-from authentik.blueprints.apps import ManagedAppConfig
 
-
-class AuthentikProviderOAuth2Config(ManagedAppConfig):
+class AuthentikProviderOAuth2Config(AppConfig):
     """authentik oauth provider app config"""
 
     name = "authentik.providers.oauth2"
@@ -13,4 +12,3 @@ class AuthentikProviderOAuth2Config(ManagedAppConfig):
         "authentik.providers.oauth2.urls_root": "",
         "authentik.providers.oauth2.urls": "application/o/",
     }
-    default = True

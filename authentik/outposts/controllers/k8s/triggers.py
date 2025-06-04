@@ -1,5 +1,4 @@
 """exceptions used by the kubernetes reconciler to trigger updates"""
-
 from authentik.lib.sentry import SentryIgnoredException
 
 

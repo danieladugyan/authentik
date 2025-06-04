@@ -1,5 +1,4 @@
 """authentik managed models tests"""
-
 from django.test import TestCase
 
 from authentik.blueprints.models import BlueprintInstance, BlueprintRetrievalFailed

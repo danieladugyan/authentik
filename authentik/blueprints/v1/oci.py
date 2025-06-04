@@ -1,5 +1,4 @@
 """OCI Client"""
-
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 

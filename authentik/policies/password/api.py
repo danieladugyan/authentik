@@ -1,5 +1,4 @@
 """Password Policy API Views"""
-
 from rest_framework.viewsets import ModelViewSet
 
 from authentik.core.api.used_by import UsedByMixin

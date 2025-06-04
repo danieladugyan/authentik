@@ -1,4 +1,3 @@
-import { globalAK } from "@goauthentik/common/global";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import { PromptStage } from "@goauthentik/flow/stages/prompt/PromptStage";
 
@@ -11,16 +10,20 @@ import { PromptTypeEnum, StagePrompt } from "@goauthentik/api";
 @customElement("ak-user-stage-prompt")
 export class UserSettingsPromptStage extends PromptStage {
     renderPromptInner(prompt: StagePrompt): TemplateResult {
-        return prompt.type === PromptTypeEnum.Checkbox
-            ? html`<input
-                  type="checkbox"
-                  class="pf-c-check__input"
-                  name="${prompt.fieldKey}"
-                  ?checked=${prompt.initialValue !== ""}
-                  ?required=${prompt.required}
-                  style="vertical-align: bottom"
-              />`
-            : super.renderPromptInner(prompt);
+        switch (prompt.type) {
+            // Checkbox requires slightly different rendering here due to the use of horizontal form elements
+            case PromptTypeEnum.Checkbox:
+                return html`<input
+                    type="checkbox"
+                    class="pf-c-check__input"
+                    name="${prompt.fieldKey}"
+                    ?checked=${prompt.initialValue !== ""}
+                    ?required=${prompt.required}
+                    style="vertical-align: bottom"
+                />`;
+            default:
+                return super.renderPromptInner(prompt);
+        }
     }
 
     renderField(prompt: StagePrompt): TemplateResult {
@@ -48,11 +51,10 @@ export class UserSettingsPromptStage extends PromptStage {
             <div class="pf-c-form__horizontal-group">
                 <div class="pf-c-form__actions">
                     <button type="submit" class="pf-c-button pf-m-primary">${msg("Save")}</button>
-                    ${this.host.brand?.flowUnenrollment
+                    ${this.host.tenant?.flowUnenrollment
                         ? html` <a
                               class="pf-c-button pf-m-danger"
-                              href="${globalAK().api.base}if/flow/${this.host.brand
-                                  .flowUnenrollment}/"
+                              href="/if/flow/${this.host.tenant.flowUnenrollment}/"
                           >
                               ${msg("Delete account")}
                           </a>`
@@ -64,7 +66,8 @@ export class UserSettingsPromptStage extends PromptStage {
 
     render(): TemplateResult {
         if (!this.challenge) {
-            return html`<ak-empty-state loading header=${msg("Loading")}> </ak-empty-state>`;
+            return html`<ak-empty-state ?loading="${true}" header=${msg("Loading")}>
+            </ak-empty-state>`;
         }
         return html`<div class="pf-c-login__main-body">
                 <form
@@ -76,17 +79,16 @@ export class UserSettingsPromptStage extends PromptStage {
                     ${this.challenge.fields.map((prompt) => {
                         return this.renderField(prompt);
                     })}
-                    ${this.renderNonFieldErrors()} ${this.renderContinue()}
+                    ${"non_field_errors" in (this.challenge?.responseErrors || {})
+                        ? this.renderNonFieldErrors(
+                              this.challenge?.responseErrors?.non_field_errors || [],
+                          )
+                        : html``}
+                    ${this.renderContinue()}
                 </form>
             </div>
             <footer class="pf-c-login__main-footer">
                 <ul class="pf-c-login__main-footer-links"></ul>
             </footer>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-stage-prompt": UserSettingsPromptStage;
     }
 }

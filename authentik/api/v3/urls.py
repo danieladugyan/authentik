@@ -1,5 +1,4 @@
 """api v3 urls"""
-
 from importlib import import_module
 
 from django.urls import path
@@ -22,18 +21,11 @@ _other_urls = []
 for _authentik_app in get_apps():
     try:
         api_urls = import_module(f"{_authentik_app.name}.urls")
-    except ModuleNotFoundError:
-        continue
-    except ImportError as exc:
-        LOGGER.warning("Could not import app's URLs", app_name=_authentik_app.name, exc=exc)
+    except (ModuleNotFoundError, ImportError):
         continue
     if not hasattr(api_urls, "api_urlpatterns"):
-        LOGGER.debug(
-            "App does not define API URLs",
-            app_name=_authentik_app.name,
-        )
         continue
-    urls: list = api_urls.api_urlpatterns
+    urls: list = getattr(api_urls, "api_urlpatterns")
     for url in urls:
         if isinstance(url, URLPattern):
             _other_urls.append(url)

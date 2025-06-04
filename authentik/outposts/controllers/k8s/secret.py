@@ -1,5 +1,4 @@
 """Kubernetes Secret Reconciler"""
-
 from base64 import b64encode
 from typing import TYPE_CHECKING
 
@@ -24,14 +23,6 @@ class SecretReconciler(KubernetesObjectReconciler[V1Secret]):
     def __init__(self, controller: "KubernetesController") -> None:
         super().__init__(controller)
         self.api = CoreV1Api(controller.client)
-
-    @property
-    def noop(self) -> bool:
-        return self.is_embedded
-
-    @staticmethod
-    def reconciler_name() -> str:
-        return "secret"
 
     def reconcile(self, current: V1Secret, reference: V1Secret):
         super().reconcile(current, reference)

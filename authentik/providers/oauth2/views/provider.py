@@ -1,5 +1,4 @@
 """authentik OAuth2 OpenID well-known views"""
-
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -8,7 +7,7 @@ from django.views import View
 from guardian.shortcuts import get_anonymous_user
 from structlog.stdlib import get_logger
 
-from authentik.core.expression.exceptions import PropertyMappingExpressionException
+from authentik.core.exceptions import PropertyMappingExpressionException
 from authentik.core.models import Application
 from authentik.providers.oauth2.constants import (
     ACR_AUTHENTIK_DEFAULT,
@@ -46,7 +45,7 @@ class ProviderInfoView(View):
         if SCOPE_OPENID not in scopes:
             scopes.append(SCOPE_OPENID)
         _, supported_alg = provider.jwt_key
-        config = {
+        return {
             "issuer": provider.get_issuer(self.request),
             "authorization_endpoint": self.request.build_absolute_uri(
                 reverse("authentik_providers_oauth2:authorize")
@@ -114,10 +113,6 @@ class ProviderInfoView(View):
             "claims_parameter_supported": False,
             "code_challenge_methods_supported": [PKCE_METHOD_PLAIN, PKCE_METHOD_S256],
         }
-        if provider.encryption_key:
-            config["id_token_encryption_alg_values_supported"] = ["RSA-OAEP-256"]
-            config["id_token_encryption_enc_values_supported"] = ["A256CBC-HS512"]
-        return config
 
     def get_claims(self, provider: OAuth2Provider) -> list[str]:
         """Get a list of supported claims based on configured scope mappings"""
@@ -162,5 +157,5 @@ class ProviderInfoView(View):
             OAuth2Provider, pk=application.provider_id
         )
         response = super().dispatch(request, *args, **kwargs)
-        cors_allow(request, response, *[x.url for x in self.provider.redirect_uris])
+        cors_allow(request, response, *self.provider.redirect_uris.split("\n"))
         return response

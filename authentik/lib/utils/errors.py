@@ -1,5 +1,4 @@
 """error utils"""
-
 from traceback import extract_tb
 
 from authentik.lib.utils.reflection import class_to_path

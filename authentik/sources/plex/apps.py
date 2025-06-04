@@ -1,5 +1,4 @@
 """authentik plex config"""
-
 from django.apps import AppConfig
 
 

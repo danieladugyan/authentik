@@ -1,26 +1,13 @@
 """Sync LDAP Users into authentik"""
-
-from collections.abc import Generator
+from typing import Generator
 
 from django.core.exceptions import FieldError
 from django.db.utils import IntegrityError
 from ldap3 import ALL_ATTRIBUTES, ALL_OPERATIONAL_ATTRIBUTES, SUBTREE
 
-from authentik.core.expression.exceptions import (
-    PropertyMappingExpressionException,
-    SkipObjectException,
-)
 from authentik.core.models import User
-from authentik.core.sources.mapper import SourceMapper
 from authentik.events.models import Event, EventAction
-from authentik.lib.sync.outgoing.exceptions import StopSync
-from authentik.sources.ldap.models import (
-    LDAP_UNIQUENESS,
-    LDAPSource,
-    UserLDAPSourceConnection,
-    flatten,
-)
-from authentik.sources.ldap.sync.base import BaseLDAPSynchronizer
+from authentik.sources.ldap.sync.base import LDAP_UNIQUENESS, BaseLDAPSynchronizer
 from authentik.sources.ldap.sync.vendor.freeipa import FreeIPA
 from authentik.sources.ldap.sync.vendor.ms_ad import MicrosoftActiveDirectory
 
@@ -28,28 +15,16 @@ from authentik.sources.ldap.sync.vendor.ms_ad import MicrosoftActiveDirectory
 class UserLDAPSynchronizer(BaseLDAPSynchronizer):
     """Sync LDAP Users into authentik"""
 
-    def __init__(self, source: LDAPSource):
-        super().__init__(source)
-        self.mapper = SourceMapper(source)
-        self.manager = self.mapper.get_manager(User, ["ldap", "dn"])
-
     @staticmethod
     def name() -> str:
         return "users"
 
     def get_objects(self, **kwargs) -> Generator:
-        if not self._source.sync_users:
-            self.message("User syncing is disabled for this Source")
-            return iter(())
         return self.search_paginator(
             search_base=self.base_dn_users,
             search_filter=self._source.user_object_filter,
             search_scope=SUBTREE,
-            attributes=[
-                ALL_ATTRIBUTES,
-                ALL_OPERATIONAL_ATTRIBUTES,
-                self._source.object_uniqueness_field,
-            ],
+            attributes=[ALL_ATTRIBUTES, ALL_OPERATIONAL_ATTRIBUTES],
             **kwargs,
         )
 
@@ -60,44 +35,26 @@ class UserLDAPSynchronizer(BaseLDAPSynchronizer):
             return -1
         user_count = 0
         for user in page_data:
-            if (attributes := self.get_attributes(user)) is None:
+            if "attributes" not in user:
                 continue
-            user_dn = flatten(user.get("entryDN", user.get("dn")))
-            if not (uniq := self.get_identifier(attributes)):
+            attributes = user.get("attributes", {})
+            user_dn = self._flatten(user.get("entryDN", user.get("dn")))
+            if self._source.object_uniqueness_field not in attributes:
                 self.message(
-                    f"Uniqueness field not found/not set in attributes: '{user_dn}'",
+                    f"Cannot find uniqueness field in attributes: '{user_dn}'",
                     attributes=attributes.keys(),
                     dn=user_dn,
                 )
                 continue
+            uniq = self._flatten(attributes[self._source.object_uniqueness_field])
             try:
-                defaults = {
-                    k: flatten(v)
-                    for k, v in self.mapper.build_object_properties(
-                        object_type=User,
-                        manager=self.manager,
-                        user=None,
-                        request=None,
-                        dn=user_dn,
-                        ldap=attributes,
-                    ).items()
-                }
-                self._logger.debug("Writing user with attributes", **defaults)
+                defaults = self.build_user_properties(user_dn, **attributes)
+                self._logger.debug("Creating user with attributes", **defaults)
                 if "username" not in defaults:
                     raise IntegrityError("Username was not set by propertymappings")
-                ak_user, created = User.update_or_create_attributes(
-                    {f"attributes__{LDAP_UNIQUENESS}": uniq}, defaults
+                ak_user, created = self.update_or_create_attributes(
+                    User, {f"attributes__{LDAP_UNIQUENESS}": uniq}, defaults
                 )
-                if not UserLDAPSourceConnection.objects.filter(
-                    source=self._source, identifier=uniq
-                ):
-                    UserLDAPSourceConnection.objects.create(
-                        source=self._source, user=ak_user, identifier=uniq
-                    )
-            except PropertyMappingExpressionException as exc:
-                raise StopSync(exc, None, exc.mapping) from exc
-            except SkipObjectException:
-                continue
             except (IntegrityError, FieldError, TypeError, AttributeError) as exc:
                 Event.new(
                     EventAction.CONFIGURATION_ERROR,

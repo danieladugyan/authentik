@@ -1,5 +1,4 @@
 """authentik oauth_provider urls"""
-
 from django.contrib.auth.decorators import login_required
 from django.urls import include, path
 
@@ -11,7 +10,7 @@ from authentik.providers.oauth2.views.token import TokenView
 github_urlpatterns = [
     path(
         "login/oauth/authorize",
-        AuthorizationFlowInitView.as_view(github_compat=True),
+        AuthorizationFlowInitView.as_view(),
         name="github-authorize",
     ),
     path(

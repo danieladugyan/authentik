@@ -1,5 +1,4 @@
 """authentik helper views"""
-
 from django.http import HttpRequest
 from django.template.response import TemplateResponse
 from django.utils.translation import gettext_lazy as _

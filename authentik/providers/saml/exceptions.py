@@ -1,5 +1,4 @@
 """authentik SAML IDP Exceptions"""
-
 from authentik.lib.sentry import SentryIgnoredException
 
 

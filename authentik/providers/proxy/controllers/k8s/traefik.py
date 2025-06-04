@@ -1,5 +1,4 @@
 """Kubernetes Traefik Middleware Reconciler"""
-
 from authentik.outposts.controllers.k8s.base import KubernetesObjectReconciler
 from authentik.outposts.controllers.kubernetes import KubernetesController
 from authentik.providers.proxy.controllers.k8s.traefik_2 import Traefik2MiddlewareReconciler
@@ -18,28 +17,24 @@ class TraefikMiddlewareReconciler(KubernetesObjectReconciler):
         if not self.reconciler.crd_exists():
             self.reconciler = Traefik2MiddlewareReconciler(controller)
 
-    @staticmethod
-    def reconciler_name() -> str:
-        return "traefik middleware"
-
     @property
     def noop(self) -> bool:
         return self.reconciler.noop
 
     def reconcile(self, current: TraefikMiddleware, reference: TraefikMiddleware):
-        return self.reconciler.reconcile(current, reference)
+        return self.reconcile(current, reference)
 
     def get_reference_object(self) -> TraefikMiddleware:
-        return self.reconciler.get_reference_object()
+        return self.get_reference_object()
 
     def create(self, reference: TraefikMiddleware):
-        return self.reconciler.create(reference)
+        return self.create(reference)
 
     def delete(self, reference: TraefikMiddleware):
-        return self.reconciler.delete(reference)
+        return self.delete(reference)
 
     def retrieve(self) -> TraefikMiddleware:
-        return self.reconciler.retrieve()
+        return self.retrieve()
 
     def update(self, current: TraefikMiddleware, reference: TraefikMiddleware):
-        return self.reconciler.update(current, reference)
+        return self.update(current, reference)

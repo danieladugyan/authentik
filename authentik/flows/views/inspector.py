@@ -1,10 +1,8 @@
 """Flow Inspector"""
-
 from hashlib import sha256
 from typing import Any
 
 from django.conf import settings
-from django.http import Http404
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -13,6 +11,7 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework.fields import BooleanField, ListField, SerializerMethodField
+from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -24,8 +23,7 @@ from authentik.flows.api.bindings import FlowStageBindingSerializer
 from authentik.flows.models import Flow
 from authentik.flows.planner import FlowPlan
 from authentik.flows.views.executor import SESSION_KEY_HISTORY, SESSION_KEY_PLAN
-
-MIN_FLOW_LENGTH = 2
+from authentik.root.install_id import get_install_id
 
 
 class FlowInspectorPlanSerializer(PassiveSerializer):
@@ -42,7 +40,7 @@ class FlowInspectorPlanSerializer(PassiveSerializer):
 
     def get_next_planned_stage(self, plan: FlowPlan) -> FlowStageBindingSerializer:
         """Get the next planned stage"""
-        if len(plan.bindings) < MIN_FLOW_LENGTH:
+        if len(plan.bindings) < 2:
             return FlowStageBindingSerializer().data
         return FlowStageBindingSerializer(instance=plan.bindings[1]).data
 
@@ -50,10 +48,12 @@ class FlowInspectorPlanSerializer(PassiveSerializer):
         """Get the plan's context, sanitized"""
         return sanitize_dict(plan.context)
 
-    def get_session_id(self, _plan: FlowPlan) -> str:
+    def get_session_id(self, plan: FlowPlan) -> str:
         """Get a unique session ID"""
         request: Request = self.context["request"]
-        return sha256(request._request.session.session_key.encode("ascii")).hexdigest()
+        return sha256(
+            f"{request._request.session.session_key}-{get_install_id()}".encode("ascii")
+        ).hexdigest()
 
 
 class FlowInspectionSerializer(PassiveSerializer):
@@ -68,21 +68,21 @@ class FlowInspectionSerializer(PassiveSerializer):
 class FlowInspectorView(APIView):
     """Flow inspector API"""
 
+    permission_classes = [IsAdminUser]
+
     flow: Flow
     _logger: BoundLogger
-    permission_classes = []
+
+    def check_permissions(self, request):
+        """Always allow access when in debug mode"""
+        if settings.DEBUG:
+            return None
+        return super().check_permissions(request)
 
     def setup(self, request: HttpRequest, flow_slug: str):
         super().setup(request, flow_slug=flow_slug)
-        self._logger = get_logger().bind(flow_slug=flow_slug)
         self.flow = get_object_or_404(Flow.objects.select_related(), slug=flow_slug)
-        if settings.DEBUG:
-            return
-        if request.user.has_perm(
-            "authentik_flows.inspect_flow", self.flow
-        ) or request.user.has_perm("authentik_flows.inspect_flow"):
-            return
-        raise Http404
+        self._logger = get_logger().bind(flow_slug=flow_slug)
 
     @extend_schema(
         responses={
@@ -96,9 +96,6 @@ class FlowInspectorView(APIView):
         """Get current flow state and record it"""
         plans = []
         for plan in request.session.get(SESSION_KEY_HISTORY, []):
-            plan: FlowPlan
-            if plan.flow_pk != self.flow.pk.hex:
-                continue
             plan_serializer = FlowInspectorPlanSerializer(
                 instance=plan, context={"request": request}
             )

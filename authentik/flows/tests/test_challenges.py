@@ -1,8 +1,7 @@
 """flow views tests"""
-
 from django.test import TestCase
 
-from authentik.flows.challenge import AutosubmitChallenge
+from authentik.flows.challenge import AutosubmitChallenge, ChallengeTypes
 
 
 class TestChallenges(TestCase):
@@ -12,6 +11,7 @@ class TestChallenges(TestCase):
         """Test blank autosubmit"""
         challenge = AutosubmitChallenge(
             data={
+                "type": ChallengeTypes.NATIVE.value,
                 "url": "http://localhost",
                 "attrs": {},
             }
@@ -20,6 +20,7 @@ class TestChallenges(TestCase):
         # Test with an empty value
         challenge = AutosubmitChallenge(
             data={
+                "type": ChallengeTypes.NATIVE.value,
                 "url": "http://localhost",
                 "attrs": {"foo": ""},
             }

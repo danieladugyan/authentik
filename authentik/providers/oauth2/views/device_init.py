@@ -1,23 +1,22 @@
 """Device flow views"""
-
-from typing import Any
+from typing import Optional
 
 from django.http import HttpRequest, HttpResponse
 from django.utils.translation import gettext as _
-from rest_framework.exceptions import ValidationError
-from rest_framework.fields import CharField
+from django.views import View
+from rest_framework.exceptions import ErrorDetail
+from rest_framework.fields import CharField, IntegerField
 from structlog.stdlib import get_logger
 
-from authentik.brands.models import Brand
 from authentik.core.models import Application
-from authentik.flows.challenge import Challenge, ChallengeResponse
+from authentik.flows.challenge import Challenge, ChallengeResponse, ChallengeTypes
 from authentik.flows.exceptions import FlowNonApplicableException
 from authentik.flows.models import in_memory_stage
 from authentik.flows.planner import PLAN_CONTEXT_APPLICATION, PLAN_CONTEXT_SSO, FlowPlanner
 from authentik.flows.stage import ChallengeStageView
 from authentik.flows.views.executor import SESSION_KEY_PLAN
-from authentik.policies.views import PolicyAccessView
-from authentik.providers.oauth2.models import DeviceToken
+from authentik.lib.utils.urls import redirect_with_qs
+from authentik.providers.oauth2.models import DeviceToken, OAuth2Provider
 from authentik.providers.oauth2.views.device_finish import (
     PLAN_CONTEXT_DEVICE,
     OAuthDeviceCodeFinishStage,
@@ -27,67 +26,75 @@ from authentik.stages.consent.stage import (
     PLAN_CONTEXT_CONSENT_HEADER,
     PLAN_CONTEXT_CONSENT_PERMISSIONS,
 )
+from authentik.tenants.models import Tenant
 
 LOGGER = get_logger()
 QS_KEY_CODE = "code"  # nosec
 
 
-class CodeValidatorView(PolicyAccessView):
-    """Helper to validate frontside token"""
-
-    def __init__(self, code: str, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.code = code
-
-    def resolve_provider_application(self):
-        self.token = DeviceToken.objects.filter(user_code=self.code).first()
-        if not self.token:
-            raise Application.DoesNotExist
-        self.provider = self.token.provider
-        self.application = self.token.provider.application
-
-    def post(self, request: HttpRequest, *args, **kwargs):
-        return self.get(request, *args, **kwargs)
-
-    def get(self, request: HttpRequest, *args, **kwargs):
-        scope_descriptions = UserInfoView().get_scope_descriptions(self.token.scope, self.provider)
-        planner = FlowPlanner(self.provider.authorization_flow)
-        planner.allow_empty_flows = True
-        planner.use_cache = False
-        try:
-            plan = planner.plan(
-                request,
-                {
-                    PLAN_CONTEXT_SSO: True,
-                    PLAN_CONTEXT_APPLICATION: self.application,
-                    # OAuth2 related params
-                    PLAN_CONTEXT_DEVICE: self.token,
-                    # Consent related params
-                    PLAN_CONTEXT_CONSENT_HEADER: _("You're about to sign into %(application)s.")
-                    % {"application": self.application.name},
-                    PLAN_CONTEXT_CONSENT_PERMISSIONS: scope_descriptions,
-                },
-            )
-        except FlowNonApplicableException:
-            LOGGER.warning("Flow not applicable to user")
+def get_application(provider: OAuth2Provider) -> Optional[Application]:
+    """Get application from provider"""
+    try:
+        app = provider.application
+        if not app:
             return None
-        plan.append_stage(in_memory_stage(OAuthDeviceCodeFinishStage))
-        return plan.to_redirect(self.request, self.token.provider.authorization_flow)
+        return app
+    except Application.DoesNotExist:
+        return None
 
 
-class DeviceEntryView(PolicyAccessView):
+def validate_code(code: int, request: HttpRequest) -> Optional[HttpResponse]:
+    """Validate user token"""
+    token = DeviceToken.objects.filter(
+        user_code=code,
+    ).first()
+    if not token:
+        return None
+
+    app = get_application(token.provider)
+    if not app:
+        return None
+
+    scope_descriptions = UserInfoView().get_scope_descriptions(token.scope)
+    planner = FlowPlanner(token.provider.authorization_flow)
+    planner.allow_empty_flows = True
+    try:
+        plan = planner.plan(
+            request,
+            {
+                PLAN_CONTEXT_SSO: True,
+                PLAN_CONTEXT_APPLICATION: app,
+                # OAuth2 related params
+                PLAN_CONTEXT_DEVICE: token,
+                # Consent related params
+                PLAN_CONTEXT_CONSENT_HEADER: _("You're about to sign into %(application)s.")
+                % {"application": app.name},
+                PLAN_CONTEXT_CONSENT_PERMISSIONS: scope_descriptions,
+            },
+        )
+    except FlowNonApplicableException:
+        LOGGER.warning("Flow not applicable to user")
+        return None
+    plan.insert_stage(in_memory_stage(OAuthDeviceCodeFinishStage))
+    request.session[SESSION_KEY_PLAN] = plan
+    return redirect_with_qs(
+        "authentik_core:if-flow",
+        request.GET,
+        flow_slug=token.provider.authorization_flow.slug,
+    )
+
+
+class DeviceEntryView(View):
     """View used to initiate the device-code flow, url entered by endusers"""
 
     def dispatch(self, request: HttpRequest) -> HttpResponse:
-        brand: Brand = request.brand
-        device_flow = brand.flow_device_code
+        tenant: Tenant = request.tenant
+        device_flow = tenant.flow_device_code
         if not device_flow:
-            LOGGER.info("Brand has no device code flow configured", brand=brand)
+            LOGGER.info("Tenant has no device code flow configured", tenant=tenant)
             return HttpResponse(status=404)
         if QS_KEY_CODE in request.GET:
-            validation = CodeValidatorView(request.GET[QS_KEY_CODE], request=request).dispatch(
-                request
-            )
+            validation = validate_code(request.GET[QS_KEY_CODE], request)
             if validation:
                 return validation
             LOGGER.info("Got code from query parameter but no matching token found")
@@ -103,7 +110,11 @@ class DeviceEntryView(PolicyAccessView):
         plan.append_stage(in_memory_stage(OAuthDeviceCodeStage))
 
         self.request.session[SESSION_KEY_PLAN] = plan
-        return plan.to_redirect(self.request, device_flow)
+        return redirect_with_qs(
+            "authentik_core:if-flow",
+            self.request.GET,
+            flow_slug=device_flow.slug,
+        )
 
 
 class OAuthDeviceCodeChallenge(Challenge):
@@ -115,28 +126,30 @@ class OAuthDeviceCodeChallenge(Challenge):
 class OAuthDeviceCodeChallengeResponse(ChallengeResponse):
     """Response that includes the user-entered device code"""
 
-    code = CharField()
+    code = IntegerField()
     component = CharField(default="ak-provider-oauth2-device-code")
-
-    def validate_code(self, code: int) -> HttpResponse | None:
-        """Validate code and save the returned http response"""
-        response = CodeValidatorView(code, request=self.stage.request).dispatch(self.stage.request)
-        if not response:
-            raise ValidationError(_("Invalid code"), "invalid")
-        return response
 
 
 class OAuthDeviceCodeStage(ChallengeStageView):
-    """Flow challenge for users to enter device code"""
+    """Flow challenge for users to enter device codes"""
 
     response_class = OAuthDeviceCodeChallengeResponse
 
     def get_challenge(self, *args, **kwargs) -> Challenge:
         return OAuthDeviceCodeChallenge(
             data={
+                "type": ChallengeTypes.NATIVE.value,
                 "component": "ak-provider-oauth2-device-code",
             }
         )
 
     def challenge_valid(self, response: ChallengeResponse) -> HttpResponse:
-        return response.validated_data["code"]
+        code = response.validated_data["code"]
+        validation = validate_code(code, self.request)
+        if not validation:
+            response._errors.setdefault("code", [])
+            response._errors["code"].append(ErrorDetail(_("Invalid code"), "invalid"))
+            return self.challenge_invalid(response)
+        # Run cancel to cleanup the current flow
+        self.executor.cancel()
+        return validation

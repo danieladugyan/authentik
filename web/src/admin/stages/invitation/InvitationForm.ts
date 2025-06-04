@@ -1,8 +1,7 @@
-import "@goauthentik/admin/common/ak-flow-search/ak-flow-search";
+import { RenderFlowOption } from "@goauthentik/admin/flows/utils";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { dateTimeLocal } from "@goauthentik/common/temporal";
+import { dateTimeLocal, first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/CodeMirror";
-import { CodeMirrorMode } from "@goauthentik/elements/CodeMirror";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 import "@goauthentik/elements/forms/SearchSelect";
@@ -12,7 +11,14 @@ import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
 import { customElement } from "lit/decorators.js";
 
-import { FlowsInstancesListDesignationEnum, Invitation, StagesApi } from "@goauthentik/api";
+import {
+    Flow,
+    FlowsApi,
+    FlowsInstancesListDesignationEnum,
+    FlowsInstancesListRequest,
+    Invitation,
+    StagesApi,
+} from "@goauthentik/api";
 
 @customElement("ak-invitation-form")
 export class InvitationForm extends ModelForm<Invitation, string> {
@@ -23,9 +29,11 @@ export class InvitationForm extends ModelForm<Invitation, string> {
     }
 
     getSuccessMessage(): string {
-        return this.instance
-            ? msg("Successfully updated invitation.")
-            : msg("Successfully created invitation.");
+        if (this.instance) {
+            return msg("Successfully updated invitation.");
+        } else {
+            return msg("Successfully created invitation.");
+        }
     }
 
     async send(data: Invitation): Promise<Invitation> {
@@ -34,14 +42,16 @@ export class InvitationForm extends ModelForm<Invitation, string> {
                 inviteUuid: this.instance.pk || "",
                 invitationRequest: data,
             });
+        } else {
+            return new StagesApi(DEFAULT_CONFIG).stagesInvitationInvitationsCreate({
+                invitationRequest: data,
+            });
         }
-        return new StagesApi(DEFAULT_CONFIG).stagesInvitationInvitationsCreate({
-            invitationRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <ak-form-element-horizontal
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <ak-form-element-horizontal
                 ?slugMode=${true}
                 label=${msg("Name")}
                 ?required=${true}
@@ -61,24 +71,47 @@ export class InvitationForm extends ModelForm<Invitation, string> {
                     data-type="datetime-local"
                     class="pf-c-form-control"
                     required
-                    value="${dateTimeLocal(this.instance?.expires ?? new Date())}"
+                    value="${dateTimeLocal(first(this.instance?.expires, new Date()))}"
                 />
             </ak-form-element-horizontal>
-            <ak-form-element-horizontal label=${msg("Flow")} name="flow">
-                <ak-flow-search
-                    flowType=${FlowsInstancesListDesignationEnum.Enrollment}
-                    .currentFlow=${this.instance?.flow}
-                ></ak-flow-search>
+            <ak-form-element-horizontal label=${msg("Flow")} ?required=${true} name="flow">
+                <ak-search-select
+                    .fetchObjects=${async (query?: string): Promise<Flow[]> => {
+                        const args: FlowsInstancesListRequest = {
+                            ordering: "slug",
+                            designation: FlowsInstancesListDesignationEnum.Enrollment,
+                        };
+                        if (query !== undefined) {
+                            args.search = query;
+                        }
+                        const flows = await new FlowsApi(DEFAULT_CONFIG).flowsInstancesList(args);
+                        return flows.results;
+                    }}
+                    .renderElement=${(flow: Flow): string => {
+                        return RenderFlowOption(flow);
+                    }}
+                    .renderDescription=${(flow: Flow): TemplateResult => {
+                        return html`${flow.name}`;
+                    }}
+                    .value=${(flow: Flow | undefined): string | undefined => {
+                        return flow?.pk;
+                    }}
+                    .selected=${(flow: Flow): boolean => {
+                        return flow.pk === this.instance?.flow;
+                    }}
+                    ?blankable=${true}
+                >
+                </ak-search-select>
                 <p class="pf-c-form__helper-text">
                     ${msg(
                         "When selected, the invite will only be usable with the flow. By default the invite is accepted on all flows with invitation stages.",
                     )}
                 </p>
             </ak-form-element-horizontal>
-            <ak-form-element-horizontal label=${msg("Custom attributes")} name="fixedData">
+            <ak-form-element-horizontal label=${msg("Attributes")} name="fixedData">
                 <ak-codemirror
-                    mode=${CodeMirrorMode.YAML}
-                    value="${YAML.stringify(this.instance?.fixedData ?? {})}"
+                    mode="yaml"
+                    value="${YAML.stringify(first(this.instance?.fixedData, {}))}"
                 >
                 </ak-codemirror>
                 <p class="pf-c-form__helper-text">
@@ -92,7 +125,7 @@ export class InvitationForm extends ModelForm<Invitation, string> {
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.singleUse ?? true}
+                        ?checked=${first(this.instance?.singleUse, true)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -104,12 +137,7 @@ export class InvitationForm extends ModelForm<Invitation, string> {
                 <p class="pf-c-form__helper-text">
                     ${msg("When enabled, the invitation will be deleted after usage.")}
                 </p>
-            </ak-form-element-horizontal>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-invitation-form": InvitationForm;
+            </ak-form-element-horizontal>
+        </form>`;
     }
 }

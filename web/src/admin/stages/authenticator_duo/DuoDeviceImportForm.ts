@@ -42,10 +42,10 @@ export class DuoDeviceImportForm extends ModelForm<AuthenticatorDuoStage, string
     }
 
     renderForm(): TemplateResult {
-        return html` ${this.instance?.adminIntegrationKey !== ""
-            ? this.renderFormAutomatic()
-            : html``}
-        ${this.renderFormManual()}`;
+        return html` <form class="pf-c-form pf-m-horizontal">
+            ${this.instance?.adminIntegrationKey !== "" ? this.renderFormAutomatic() : html``}
+            ${this.renderFormManual()}
+        </form>`;
     }
 
     renderFormManual(): TemplateResult {
@@ -119,11 +119,5 @@ export class DuoDeviceImportForm extends ModelForm<AuthenticatorDuoStage, string
             <ak-divider>${msg("Or manually import")}</ak-divider>
             <br />
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-authenticator-duo-device-import-form": DuoDeviceImportForm;
     }
 }

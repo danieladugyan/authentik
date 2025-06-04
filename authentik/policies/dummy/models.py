@@ -1,5 +1,4 @@
 """Dummy policy"""
-
 from random import SystemRandom
 from time import sleep
 

@@ -1,8 +1,6 @@
 """authentik stage Base view"""
+from typing import TYPE_CHECKING, Optional
 
-from typing import TYPE_CHECKING
-
-from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest
 from django.http.request import QueryDict
@@ -11,24 +9,23 @@ from django.urls import reverse
 from django.views.generic.base import View
 from prometheus_client import Histogram
 from rest_framework.request import Request
-from sentry_sdk import start_span
+from sentry_sdk.hub import Hub
 from structlog.stdlib import BoundLogger, get_logger
 
-from authentik.core.models import Application, User
+from authentik.core.models import User
 from authentik.flows.challenge import (
     AccessDeniedChallenge,
     Challenge,
     ChallengeResponse,
+    ChallengeTypes,
     ContextualFlowInfo,
     HttpChallengeResponse,
     RedirectChallenge,
-    SessionEndChallenge,
     WithUserInfoChallenge,
 )
-from authentik.flows.exceptions import StageInvalidException
 from authentik.flows.models import InvalidResponseAction
 from authentik.flows.planner import PLAN_CONTEXT_APPLICATION, PLAN_CONTEXT_PENDING_USER
-from authentik.lib.avatars import DEFAULT_AVATAR, get_avatar
+from authentik.lib.avatars import DEFAULT_AVATAR
 from authentik.lib.utils.reflection import class_to_path
 
 if TYPE_CHECKING:
@@ -93,29 +90,18 @@ class ChallengeStageView(StageView):
 
     def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Return a challenge for the frontend to solve"""
-        try:
-            challenge = self._get_challenge(*args, **kwargs)
-        except StageInvalidException as exc:
-            self.logger.debug("Got StageInvalidException", exc=exc)
-            return self.executor.stage_invalid()
+        challenge = self._get_challenge(*args, **kwargs)
         if not challenge.is_valid():
-            self.logger.error(
+            self.logger.warning(
                 "f(ch): Invalid challenge",
                 errors=challenge.errors,
-                challenge=challenge.data,
             )
         return HttpChallengeResponse(challenge)
 
     def post(self, request: Request, *args, **kwargs) -> HttpResponse:
         """Handle challenge response"""
-        valid = False
-        try:
-            challenge: ChallengeResponse = self.get_response_instance(data=request.data)
-            valid = challenge.is_valid()
-        except StageInvalidException as exc:
-            self.logger.debug("Got StageInvalidException", exc=exc)
-            return self.executor.stage_invalid()
-        if not valid:
+        challenge: ChallengeResponse = self.get_response_instance(data=request.data)
+        if not challenge.is_valid():
             if self.executor.current_binding.invalid_response_action in [
                 InvalidResponseAction.RESTART,
                 InvalidResponseAction.RESTART_WITH_CONTEXT,
@@ -130,9 +116,9 @@ class ChallengeStageView(StageView):
                 )
                 return self.executor.restart_flow(keep_context)
             with (
-                start_span(
+                Hub.current.start_span(
                     op="authentik.flow.stage.challenge_invalid",
-                    name=self.__class__.__name__,
+                    description=self.__class__.__name__,
                 ),
                 HIST_FLOWS_STAGE_TIME.labels(
                     stage_type=self.__class__.__name__, method="challenge_invalid"
@@ -140,9 +126,9 @@ class ChallengeStageView(StageView):
             ):
                 return self.challenge_invalid(challenge)
         with (
-            start_span(
+            Hub.current.start_span(
                 op="authentik.flow.stage.challenge_valid",
-                name=self.__class__.__name__,
+                description=self.__class__.__name__,
             ),
             HIST_FLOWS_STAGE_TIME.labels(
                 stage_type=self.__class__.__name__, method="challenge_valid"
@@ -159,25 +145,25 @@ class ChallengeStageView(StageView):
                 "app": self.executor.plan.context.get(PLAN_CONTEXT_APPLICATION, ""),
                 "user": self.get_pending_user(for_display=True),
             }
-
+        # pylint: disable=broad-except
         except Exception as exc:
             self.logger.warning("failed to template title", exc=exc)
             return self.executor.flow.title
 
     def _get_challenge(self, *args, **kwargs) -> Challenge:
         with (
-            start_span(
+            Hub.current.start_span(
                 op="authentik.flow.stage.get_challenge",
-                name=self.__class__.__name__,
+                description=self.__class__.__name__,
             ),
             HIST_FLOWS_STAGE_TIME.labels(
                 stage_type=self.__class__.__name__, method="get_challenge"
             ).time(),
         ):
             challenge = self.get_challenge(*args, **kwargs)
-        with start_span(
+        with Hub.current.start_span(
             op="authentik.flow.stage._get_challenge",
-            name=self.__class__.__name__,
+            description=self.__class__.__name__,
         ):
             if not hasattr(challenge, "initial_data"):
                 challenge.initial_data = {}
@@ -185,7 +171,7 @@ class ChallengeStageView(StageView):
                 flow_info = ContextualFlowInfo(
                     data={
                         "title": self.format_title(),
-                        "background": self.executor.flow.background_url(self.request),
+                        "background": self.executor.flow.background_url,
                         "cancel_url": reverse("authentik_flows:cancel"),
                         "layout": self.executor.flow.layout,
                     }
@@ -200,7 +186,7 @@ class ChallengeStageView(StageView):
                     challenge.initial_data["pending_user"] = user.username
                 challenge.initial_data["pending_user_avatar"] = DEFAULT_AVATAR
                 if not isinstance(user, AnonymousUser):
-                    challenge.initial_data["pending_user_avatar"] = get_avatar(user, self.request)
+                    challenge.initial_data["pending_user_avatar"] = user.avatar
         return challenge
 
     def get_challenge(self, *args, **kwargs) -> Challenge:
@@ -226,14 +212,6 @@ class ChallengeStageView(StageView):
                 full_errors[field].append(field_error)
         challenge_response.initial_data["response_errors"] = full_errors
         if not challenge_response.is_valid():
-            if settings.TEST:
-                raise StageInvalidException(
-                    (
-                        f"Invalid challenge response: \n\t{challenge_response.errors}"
-                        f"\n\nValidated data:\n\t {challenge_response.data}"
-                        f"\n\nInitial data:\n\t {challenge_response.initial_data}"
-                    ),
-                )
             self.logger.error(
                 "f(ch): invalid challenge response",
                 errors=challenge_response.errors,
@@ -241,12 +219,12 @@ class ChallengeStageView(StageView):
         return HttpChallengeResponse(challenge_response)
 
 
-class AccessDeniedStage(ChallengeStageView):
+class AccessDeniedChallengeView(ChallengeStageView):
     """Used internally by FlowExecutor's stage_invalid()"""
 
-    error_message: str | None
+    error_message: Optional[str]
 
-    def __init__(self, executor: "FlowExecutorView", error_message: str | None = None, **kwargs):
+    def __init__(self, executor: "FlowExecutorView", error_message: Optional[str] = None, **kwargs):
         super().__init__(executor, **kwargs)
         self.error_message = error_message
 
@@ -254,6 +232,7 @@ class AccessDeniedStage(ChallengeStageView):
         return AccessDeniedChallenge(
             data={
                 "error_message": str(self.error_message or "Unknown error"),
+                "type": ChallengeTypes.NATIVE.value,
                 "component": "ak-stage-access-denied",
             }
         )
@@ -273,37 +252,10 @@ class RedirectStage(ChallengeStageView):
         )
         return RedirectChallenge(
             data={
+                "type": ChallengeTypes.REDIRECT.value,
                 "to": destination,
             }
         )
 
     def challenge_valid(self, response: ChallengeResponse) -> HttpResponse:
         return HttpChallengeResponse(self.get_challenge())
-
-
-class SessionEndStage(ChallengeStageView):
-    """Stage inserted when a flow is used as invalidation flow. By default shows actions
-    that the user is likely to take after signing out of a provider."""
-
-    def get_challenge(self, *args, **kwargs) -> Challenge:
-        application: Application | None = self.executor.plan.context.get(PLAN_CONTEXT_APPLICATION)
-        data = {
-            "component": "ak-stage-session-end",
-            "brand_name": self.request.brand.branding_title,
-        }
-        if application:
-            data["application_name"] = application.name
-            data["application_launch_url"] = application.get_launch_url(self.get_pending_user())
-        if self.request.brand.flow_invalidation:
-            data["invalidation_flow_url"] = reverse(
-                "authentik_core:if-flow",
-                kwargs={
-                    "flow_slug": self.request.brand.flow_invalidation.slug,
-                },
-            )
-        return SessionEndChallenge(data=data)
-
-    # This can never be reached since this challenge is created on demand and only the
-    # .get() method is called
-    def challenge_valid(self, response: ChallengeResponse) -> HttpResponse:  # pragma: no cover
-        return self.executor.cancel()

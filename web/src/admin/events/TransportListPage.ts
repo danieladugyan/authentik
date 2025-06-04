@@ -1,6 +1,6 @@
 import "@goauthentik/admin/events/TransportForm";
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/elements/buttons/ActionButton";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
@@ -8,17 +8,12 @@ import "@goauthentik/elements/forms/ModalForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
-import {
-    EventsApi,
-    NotificationTransport,
-    RbacPermissionsAssignedByUsersListModelEnum,
-} from "@goauthentik/api";
+import { EventsApi, NotificationTransport } from "@goauthentik/api";
 
 @customElement("ak-event-transport-list")
 export class TransportListPage extends TablePage<NotificationTransport> {
@@ -36,15 +31,17 @@ export class TransportListPage extends TablePage<NotificationTransport> {
     }
 
     checkbox = true;
-    clearOnRefresh = true;
 
     @property()
     order = "name";
 
-    async apiEndpoint(): Promise<PaginatedResponse<NotificationTransport>> {
-        return new EventsApi(DEFAULT_CONFIG).eventsTransportsList(
-            await this.defaultEndpointConfig(),
-        );
+    async apiEndpoint(page: number): Promise<PaginatedResponse<NotificationTransport>> {
+        return new EventsApi(DEFAULT_CONFIG).eventsTransportsList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
     }
 
     columns(): TableColumn[] {
@@ -87,17 +84,9 @@ export class TransportListPage extends TablePage<NotificationTransport> {
                     <ak-event-transport-form slot="form" .instancePk=${item.pk}>
                     </ak-event-transport-form>
                     <button slot="trigger" class="pf-c-button pf-m-plain">
-                        <pf-tooltip position="top" content=${msg("Edit")}>
-                            <i class="fas fa-edit"></i>
-                        </pf-tooltip>
+                        <i class="fas fa-edit"></i>
                     </button>
                 </ak-forms-modal>
-
-                <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikEventsNotificationtransport}
-                    objectPk=${item.pk}
-                >
-                </ak-rbac-object-permission-modal>
                 <ak-action-button
                     class="pf-m-plain"
                     .apiRequest=${() => {
@@ -106,9 +95,7 @@ export class TransportListPage extends TablePage<NotificationTransport> {
                         });
                     }}
                 >
-                    <pf-tooltip position="top" content=${msg("Test")}>
-                        <i class="fas fa-vial" aria-hidden="true"></i>
-                    </pf-tooltip>
+                    <i class="fas fa-vial" aria-hidden="true"></i>
                 </ak-action-button>`,
         ];
     }
@@ -122,11 +109,5 @@ export class TransportListPage extends TablePage<NotificationTransport> {
                 <button slot="trigger" class="pf-c-button pf-m-primary">${msg("Create")}</button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-event-transport-list": TransportListPage;
     }
 }

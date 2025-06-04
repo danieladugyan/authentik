@@ -1,7 +1,8 @@
-import { CapabilitiesEnum, WithCapabilitiesConfig } from "#elements/mixins/capabilities";
 import { DesignationToLabel, LayoutToLabel } from "@goauthentik/admin/flows/utils";
 import { AuthenticationEnum } from "@goauthentik/api/dist/models/AuthenticationEnum";
-import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { DEFAULT_CONFIG, config } from "@goauthentik/common/api/config";
+import { first } from "@goauthentik/common/utils";
+import { rootInterface } from "@goauthentik/elements/Base";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
@@ -13,16 +14,17 @@ import { customElement, property } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 import {
+    CapabilitiesEnum,
     DeniedActionEnum,
     Flow,
     FlowDesignationEnum,
-    FlowLayoutEnum,
     FlowsApi,
+    LayoutEnum,
     PolicyEngineMode,
 } from "@goauthentik/api";
 
 @customElement("ak-flow-form")
-export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
+export class FlowForm extends ModelForm<Flow, string> {
     async loadInstance(pk: string): Promise<Flow> {
         const flow = await new FlowsApi(DEFAULT_CONFIG).flowsInstancesRetrieve({
             slug: pk,
@@ -32,9 +34,11 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
     }
 
     getSuccessMessage(): string {
-        return this.instance
-            ? msg("Successfully updated flow.")
-            : msg("Successfully created flow.");
+        if (this.instance) {
+            return msg("Successfully updated flow.");
+        } else {
+            return msg("Successfully created flow.");
+        }
     }
 
     @property({ type: Boolean })
@@ -52,9 +56,9 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
                 flowRequest: data,
             });
         }
-
-        if (this.can(CapabilitiesEnum.CanSaveMedia)) {
-            const icon = this.getFormFiles().background;
+        const c = await config();
+        if (c.capabilities.includes(CapabilitiesEnum.CanSaveMedia)) {
+            const icon = this.getFormFiles()["background"];
             if (icon || this.clearBackground) {
                 await new FlowsApi(DEFAULT_CONFIG).flowsInstancesSetBackgroundCreate({
                     slug: flow.slug,
@@ -74,7 +78,8 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
     }
 
     renderForm(): TemplateResult {
-        return html` <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
                     value="${ifDefined(this.instance?.name)}"
@@ -95,9 +100,7 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
                 <input
                     type="text"
                     value="${ifDefined(this.instance?.slug)}"
-                    class="pf-c-form-control pf-m-monospace"
-                    autocomplete="off"
-                    spellcheck="false"
+                    class="pf-c-form-control"
                     required
                 />
                 <p class="pf-c-form__helper-text">${msg("Visible in the URL.")}</p>
@@ -187,28 +190,14 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
                         ?selected=${this.instance?.authentication ===
                         AuthenticationEnum.RequireUnauthenticated}
                     >
-                        ${msg("Require no authentication")}
+                        ${msg("Require no authentication.")}
                     </option>
                     <option
                         value=${AuthenticationEnum.RequireSuperuser}
                         ?selected=${this.instance?.authentication ===
                         AuthenticationEnum.RequireSuperuser}
                     >
-                        ${msg("Require superuser")}
-                    </option>
-                    <option
-                        value=${AuthenticationEnum.RequireRedirect}
-                        ?selected=${this.instance?.authentication ===
-                        AuthenticationEnum.RequireRedirect}
-                    >
-                        ${msg("Require being redirected from another flow")}
-                    </option>
-                    <option
-                        value=${AuthenticationEnum.RequireOutpost}
-                        ?selected=${this.instance?.authentication ===
-                        AuthenticationEnum.RequireOutpost}
-                    >
-                        ${msg("Require Outpost (flow can only be executed from an outpost)")}
+                        ${msg("Require superuser.")}
                     </option>
                 </select>
                 <p class="pf-c-form__helper-text">
@@ -223,7 +212,7 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
                             <input
                                 class="pf-c-switch__input"
                                 type="checkbox"
-                                ?checked=${this.instance?.compatibilityMode ?? false}
+                                ?checked=${first(this.instance?.compatibilityMode, false)}
                             />
                             <span class="pf-c-switch__toggle">
                                 <span class="pf-c-switch__toggle-icon">
@@ -316,38 +305,38 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
                     >
                         <select class="pf-c-form-control">
                             <option
-                                value=${FlowLayoutEnum.Stacked}
-                                ?selected=${this.instance?.layout === FlowLayoutEnum.Stacked}
+                                value=${LayoutEnum.Stacked}
+                                ?selected=${this.instance?.layout === LayoutEnum.Stacked}
                             >
-                                ${LayoutToLabel(FlowLayoutEnum.Stacked)}
+                                ${LayoutToLabel(LayoutEnum.Stacked)}
                             </option>
                             <option
-                                value=${FlowLayoutEnum.ContentLeft}
-                                ?selected=${this.instance?.layout === FlowLayoutEnum.ContentLeft}
+                                value=${LayoutEnum.ContentLeft}
+                                ?selected=${this.instance?.layout === LayoutEnum.ContentLeft}
                             >
-                                ${LayoutToLabel(FlowLayoutEnum.ContentLeft)}
+                                ${LayoutToLabel(LayoutEnum.ContentLeft)}
                             </option>
                             <option
-                                value=${FlowLayoutEnum.ContentRight}
-                                ?selected=${this.instance?.layout === FlowLayoutEnum.ContentRight}
+                                value=${LayoutEnum.ContentRight}
+                                ?selected=${this.instance?.layout === LayoutEnum.ContentRight}
                             >
-                                ${LayoutToLabel(FlowLayoutEnum.ContentRight)}
+                                ${LayoutToLabel(LayoutEnum.ContentRight)}
                             </option>
                             <option
-                                value=${FlowLayoutEnum.SidebarLeft}
-                                ?selected=${this.instance?.layout === FlowLayoutEnum.SidebarLeft}
+                                value=${LayoutEnum.SidebarLeft}
+                                ?selected=${this.instance?.layout === LayoutEnum.SidebarLeft}
                             >
-                                ${LayoutToLabel(FlowLayoutEnum.SidebarLeft)}
+                                ${LayoutToLabel(LayoutEnum.SidebarLeft)}
                             </option>
                             <option
-                                value=${FlowLayoutEnum.SidebarRight}
-                                ?selected=${this.instance?.layout === FlowLayoutEnum.SidebarRight}
+                                value=${LayoutEnum.SidebarRight}
+                                ?selected=${this.instance?.layout === LayoutEnum.SidebarRight}
                             >
-                                ${LayoutToLabel(FlowLayoutEnum.SidebarRight)}
+                                ${LayoutToLabel(LayoutEnum.SidebarRight)}
                             </option>
                         </select>
                     </ak-form-element-horizontal>
-                    ${this.can(CapabilitiesEnum.CanSaveMedia)
+                    ${rootInterface()?.config?.capabilities.includes(CapabilitiesEnum.CanSaveMedia)
                         ? html`<ak-form-element-horizontal
                                   label=${msg("Background")}
                                   name="background"
@@ -403,7 +392,7 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
                           >
                               <input
                                   type="text"
-                                  value="${this.instance?.background ?? ""}"
+                                  value="${first(this.instance?.background, "")}"
                                   class="pf-c-form-control"
                               />
                               <p class="pf-c-form__helper-text">
@@ -411,12 +400,7 @@ export class FlowForm extends WithCapabilitiesConfig(ModelForm<Flow, string>) {
                               </p>
                           </ak-form-element-horizontal>`}
                 </div>
-            </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-flow-form": FlowForm;
+            </ak-form-group>
+        </form>`;
     }
 }

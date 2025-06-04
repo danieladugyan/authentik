@@ -1,10 +1,11 @@
 """Event notification tasks"""
+from typing import Optional
 
 from django.db.models.query_utils import Q
 from guardian.shortcuts import get_anonymous_user
 from structlog.stdlib import get_logger
 
-from authentik.core.expression.exceptions import PropertyMappingExpressionException
+from authentik.core.exceptions import PropertyMappingExpressionException
 from authentik.core.models import User
 from authentik.events.models import (
     Event,
@@ -12,9 +13,13 @@ from authentik.events.models import (
     NotificationRule,
     NotificationTransport,
     NotificationTransportError,
-    TaskStatus,
 )
-from authentik.events.system_tasks import SystemTask, prefill_task
+from authentik.events.monitored_tasks import (
+    MonitoredTask,
+    TaskResult,
+    TaskResultStatus,
+    prefill_task,
+)
 from authentik.policies.engine import PolicyEngine
 from authentik.policies.models import PolicyBinding, PolicyEngineMode
 from authentik.root.celery import CELERY_APP
@@ -36,7 +41,7 @@ def event_trigger_handler(event_uuid: str, trigger_name: str):
     if not event:
         LOGGER.warning("event doesn't exist yet or anymore", event_uuid=event_uuid)
         return
-    trigger: NotificationRule | None = NotificationRule.objects.filter(name=trigger_name).first()
+    trigger: Optional[NotificationRule] = NotificationRule.objects.filter(name=trigger_name).first()
     if not trigger:
         return
 
@@ -94,10 +99,10 @@ def event_trigger_handler(event_uuid: str, trigger_name: str):
     bind=True,
     autoretry_for=(NotificationTransportError,),
     retry_backoff=True,
-    base=SystemTask,
+    base=MonitoredTask,
 )
 def notification_transport(
-    self: SystemTask, transport_pk: int, event_pk: str, user_pk: int, trigger_pk: str
+    self: MonitoredTask, transport_pk: int, event_pk: str, user_pk: int, trigger_pk: str
 ):
     """Send notification over specified transport"""
     self.save_on_success = False
@@ -118,9 +123,9 @@ def notification_transport(
         if not transport:
             return
         transport.send(notification)
-        self.set_status(TaskStatus.SUCCESSFUL)
+        self.set_status(TaskResult(TaskResultStatus.SUCCESSFUL))
     except (NotificationTransportError, PropertyMappingExpressionException) as exc:
-        self.set_error(exc)
+        self.set_status(TaskResult(TaskResultStatus.ERROR).with_error(exc))
         raise exc
 
 
@@ -132,12 +137,13 @@ def gdpr_cleanup(user_pk: int):
     events.delete()
 
 
-@CELERY_APP.task(bind=True, base=SystemTask)
+@CELERY_APP.task(bind=True, base=MonitoredTask)
 @prefill_task
-def notification_cleanup(self: SystemTask):
+def notification_cleanup(self: MonitoredTask):
     """Cleanup seen notifications and notifications whose event expired."""
     notifications = Notification.objects.filter(Q(event=None) | Q(seen=True))
     amount = notifications.count()
-    notifications.delete()
+    for notification in notifications:
+        notification.delete()
     LOGGER.debug("Expired notifications", amount=amount)
-    self.set_status(TaskStatus.SUCCESSFUL, f"Expired {amount} Notifications")
+    self.set_status(TaskResult(TaskResultStatus.SUCCESSFUL, [f"Expired {amount} Notifications"]))

@@ -2,7 +2,8 @@ import "@goauthentik/admin/groups/GroupForm";
 import "@goauthentik/admin/groups/GroupForm";
 import "@goauthentik/admin/users/GroupSelectModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import "@goauthentik/components/ak-status-label";
+import { uiConfig } from "@goauthentik/common/ui/config";
+import { PFColor } from "@goauthentik/elements/Label";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import { Form } from "@goauthentik/elements/forms/Form";
@@ -10,7 +11,6 @@ import "@goauthentik/elements/forms/HorizontalFormElement";
 import "@goauthentik/elements/forms/ModalForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { Table, TableColumn } from "@goauthentik/elements/table/Table";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg, str } from "@lit/localize";
 import { TemplateResult, html } from "lit";
@@ -45,7 +45,7 @@ export class RelatedGroupAdd extends Form<{ groups: string[] }> {
         return data;
     }
 
-    renderForm(): TemplateResult {
+    renderInlineForm(): TemplateResult {
         return html`<ak-form-element-horizontal label=${msg("Groups to add")} name="groups">
             <div class="pf-c-input-group">
                 <ak-user-group-select-table
@@ -56,9 +56,7 @@ export class RelatedGroupAdd extends Form<{ groups: string[] }> {
                     }}
                 >
                     <button slot="trigger" class="pf-c-button pf-m-control" type="button">
-                        <pf-tooltip position="top" content=${msg("Add group")}>
-                            <i class="fas fa-plus" aria-hidden="true"></i>
-                        </pf-tooltip>
+                        <i class="fas fa-plus" aria-hidden="true"></i>
                     </button>
                 </ak-user-group-select-table>
                 <div class="pf-c-form-control">
@@ -86,7 +84,6 @@ export class RelatedGroupAdd extends Form<{ groups: string[] }> {
 @customElement("ak-group-related-list")
 export class RelatedGroupList extends Table<Group> {
     checkbox = true;
-    clearOnRefresh = true;
     searchEnabled(): boolean {
         return true;
     }
@@ -97,11 +94,13 @@ export class RelatedGroupList extends Table<Group> {
     @property({ attribute: false })
     targetUser?: User;
 
-    async apiEndpoint(): Promise<PaginatedResponse<Group>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Group>> {
         return new CoreApi(DEFAULT_CONFIG).coreGroupsList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
             membersByPk: this.targetUser ? [this.targetUser.pk] : [],
-            includeUsers: false,
         });
     }
 
@@ -122,7 +121,6 @@ export class RelatedGroupList extends Table<Group> {
             actionSubtext=${msg(
                 str`Are you sure you want to remove user ${this.targetUser?.username} from the following groups?`,
             )}
-            buttonLabel=${msg("Remove")}
             .objects=${this.selectedElements}
             .delete=${(item: Group) => {
                 if (!this.targetUser) return;
@@ -144,15 +142,15 @@ export class RelatedGroupList extends Table<Group> {
         return [
             html`<a href="#/identity/groups/${item.pk}">${item.name}</a>`,
             html`${item.parentName || msg("-")}`,
-            html`<ak-label type="info" ?good=${item.isSuperuser}></ak-label>`,
+            html`<ak-label color=${item.isSuperuser ? PFColor.Green : PFColor.Grey}>
+                ${item.isSuperuser ? msg("Yes") : msg("No")}
+            </ak-label>`,
             html` <ak-forms-modal>
                 <span slot="submit"> ${msg("Update")} </span>
                 <span slot="header"> ${msg("Update Group")} </span>
                 <ak-group-form slot="form" .instancePk=${item.pk}> </ak-group-form>
                 <button slot="trigger" class="pf-c-button pf-m-plain">
-                    <pf-tooltip position="top" content=${msg("Edit")}>
-                        <i class="fas fa-edit"></i>
-                    </pf-tooltip>
+                    <i class="fas fa-edit"></i>
                 </button>
             </ak-forms-modal>`,
         ];
@@ -181,12 +179,5 @@ export class RelatedGroupList extends Table<Group> {
             </ak-forms-modal>
             ${super.renderToolbar()}
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-group-related-list": RelatedGroupList;
-        "ak-group-related-add": RelatedGroupAdd;
     }
 }

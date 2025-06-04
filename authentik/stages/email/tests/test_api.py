@@ -1,5 +1,4 @@
 """email stage api tests"""
-
 from django.urls import reverse
 from rest_framework.serializers import ValidationError
 from rest_framework.test import APITestCase

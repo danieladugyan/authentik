@@ -1,14 +1,11 @@
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import { EVENT_REFRESH } from "@goauthentik/common/constants";
-import { formatElapsedTime } from "@goauthentik/common/temporal";
 import { PFColor } from "@goauthentik/elements/Label";
 import "@goauthentik/elements/buttons/ActionButton";
 import "@goauthentik/elements/buttons/SpinnerButton";
-import "@goauthentik/elements/events/LogViewer";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg, str } from "@lit/localize";
 import { CSSResult, TemplateResult, html } from "lit";
@@ -16,10 +13,13 @@ import { customElement, property } from "lit/decorators.js";
 
 import PFDescriptionList from "@patternfly/patternfly/components/DescriptionList/description-list.css";
 
-import { EventsApi, SystemTask, SystemTaskStatusEnum } from "@goauthentik/api";
+import { AdminApi, Task, TaskStatusEnum } from "@goauthentik/api";
 
 @customElement("ak-system-task-list")
-export class SystemTaskListPage extends TablePage<SystemTask> {
+export class SystemTaskListPage extends TablePage<Task> {
+    searchEnabled(): boolean {
+        return false;
+    }
     pageTitle(): string {
         return msg("System Tasks");
     }
@@ -32,47 +32,52 @@ export class SystemTaskListPage extends TablePage<SystemTask> {
 
     expandable = true;
 
-    searchEnabled(): boolean {
-        return true;
-    }
-
     @property()
-    order = "name";
+    order = "slug";
 
     static get styles(): CSSResult[] {
         return super.styles.concat(PFDescriptionList);
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<SystemTask>> {
-        return new EventsApi(DEFAULT_CONFIG).eventsSystemTasksList(
-            await this.defaultEndpointConfig(),
-        );
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Task>> {
+        return new AdminApi(DEFAULT_CONFIG).adminSystemTasksList().then((tasks) => {
+            return {
+                pagination: {
+                    count: tasks.length,
+                    totalPages: 1,
+                    startIndex: 1,
+                    endIndex: tasks.length,
+                    current: page,
+                },
+                results: tasks,
+            };
+        });
     }
 
     columns(): TableColumn[] {
         return [
-            new TableColumn(msg("Identifier"), "name"),
+            new TableColumn(msg("Identifier")),
             new TableColumn(msg("Description")),
             new TableColumn(msg("Last run")),
-            new TableColumn(msg("Status"), "status"),
+            new TableColumn(msg("Status")),
             new TableColumn(msg("Actions")),
         ];
     }
 
-    taskStatus(task: SystemTask): TemplateResult {
+    taskStatus(task: Task): TemplateResult {
         switch (task.status) {
-            case SystemTaskStatusEnum.Successful:
+            case TaskStatusEnum.Successful:
                 return html`<ak-label color=${PFColor.Green}>${msg("Successful")}</ak-label>`;
-            case SystemTaskStatusEnum.Warning:
+            case TaskStatusEnum.Warning:
                 return html`<ak-label color=${PFColor.Orange}>${msg("Warning")}</ak-label>`;
-            case SystemTaskStatusEnum.Error:
+            case TaskStatusEnum.Error:
                 return html`<ak-label color=${PFColor.Red}>${msg("Error")}</ak-label>`;
             default:
                 return html`<ak-label color=${PFColor.Grey}>${msg("Unknown")}</ak-label>`;
         }
     }
 
-    renderExpanded(item: SystemTask): TemplateResult {
+    renderExpanded(item: Task): TemplateResult {
         return html` <td role="cell" colspan="3">
                 <div class="pf-c-table__expandable-row-content">
                     <dl class="pf-c-description-list pf-m-horizontal">
@@ -82,28 +87,7 @@ export class SystemTaskListPage extends TablePage<SystemTask> {
                             </dt>
                             <dd class="pf-c-description-list__description">
                                 <div class="pf-c-description-list__text">
-                                    ${msg(str`${item.duration.toFixed(2)} seconds`)}
-                                </div>
-                            </dd>
-                        </div>
-                        <div class="pf-c-description-list__group">
-                            <dt class="pf-c-description-list__term">
-                                <span class="pf-c-description-list__text">${msg("Expiry")}</span>
-                            </dt>
-                            <dd class="pf-c-description-list__description">
-                                <div class="pf-c-description-list__text">
-                                    ${item.expiring
-                                        ? html`
-                                              <pf-tooltip
-                                                  position="top"
-                                                  content=${(
-                                                      item.expires || new Date()
-                                                  ).toLocaleString()}
-                                              >
-                                                  ${formatElapsedTime(item.expires || new Date())}
-                                              </pf-tooltip>
-                                          `
-                                        : msg("-")}
+                                    ${msg(str`${item.taskDuration.toFixed(2)} seconds`)}
                                 </div>
                             </dd>
                         </div>
@@ -113,7 +97,9 @@ export class SystemTaskListPage extends TablePage<SystemTask> {
                             </dt>
                             <dd class="pf-c-description-list__description">
                                 <div class="pf-c-description-list__text">
-                                    <ak-log-viewer .logs=${item?.messages}></ak-log-viewer>
+                                    ${item.messages.map((m) => {
+                                        return html`<li>${m}</li>`;
+                                    })}
                                 </div>
                             </dd>
                         </div>
@@ -124,19 +110,18 @@ export class SystemTaskListPage extends TablePage<SystemTask> {
             <td></td>`;
     }
 
-    row(item: SystemTask): TemplateResult[] {
+    row(item: Task): TemplateResult[] {
         return [
-            html`<pre>${item.name}${item.uid ? `:${item.uid}` : ""}</pre>`,
-            html`${item.description}`,
-            html`<div>${formatElapsedTime(item.finishTimestamp)}</div>
-                <small>${item.finishTimestamp.toLocaleString()}</small>`,
+            html`${item.taskName}`,
+            html`${item.taskDescription}`,
+            html`${item.taskFinishTimestamp.toLocaleString()}`,
             this.taskStatus(item),
             html`<ak-action-button
                 class="pf-m-plain"
                 .apiRequest=${() => {
-                    return new EventsApi(DEFAULT_CONFIG)
-                        .eventsSystemTasksRunCreate({
-                            uuid: item.uuid,
+                    return new AdminApi(DEFAULT_CONFIG)
+                        .adminSystemTasksRetryCreate({
+                            id: item.taskName,
                         })
                         .then(() => {
                             this.dispatchEvent(
@@ -148,16 +133,8 @@ export class SystemTaskListPage extends TablePage<SystemTask> {
                         });
                 }}
             >
-                <pf-tooltip position="top" content=${msg("Restart task")}>
-                    <i class="fas fa-redo" aria-hidden="true"></i>
-                </pf-tooltip>
+                <i class="fas fa-play" aria-hidden="true"></i>
             </ak-action-button>`,
         ];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-system-task-list": SystemTaskListPage;
     }
 }

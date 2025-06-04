@@ -1,7 +1,7 @@
 import { AKElement } from "@goauthentik/elements/Base";
-import "@goauthentik/elements/sidebar/SidebarVersion";
+import "@goauthentik/elements/sidebar/SidebarBrand";
+import "@goauthentik/elements/sidebar/SidebarUser";
 
-import { msg } from "@lit/localize";
 import { CSSResult, TemplateResult, css, html } from "lit";
 import { customElement } from "lit/decorators.js";
 
@@ -21,7 +21,6 @@ export class Sidebar extends AKElement {
             css`
                 :host {
                     z-index: 100;
-                    --pf-c-page__sidebar--Transition: 0 !important;
                 }
                 .pf-c-nav__link.pf-m-current::after,
                 .pf-c-nav__link.pf-m-current:hover::after,
@@ -35,10 +34,14 @@ export class Sidebar extends AKElement {
                 .pf-c-nav__section + .pf-c-nav__section {
                     --pf-c-nav__section--section--MarginTop: var(--pf-global--spacer--sm);
                 }
-
+                .pf-c-nav__list .sidebar-brand {
+                    max-height: 82px;
+                    margin-bottom: -0.5rem;
+                }
                 nav {
                     display: flex;
                     flex-direction: column;
+                    max-height: 100vh;
                     height: 100%;
                     overflow-y: hidden;
                 }
@@ -65,18 +68,13 @@ export class Sidebar extends AKElement {
     render(): TemplateResult {
         return html`<nav
             class="pf-c-nav ${this.activeTheme === UiThemeEnum.Light ? "pf-m-light" : ""}"
-            aria-label=${msg("Global")}
+            aria-label="Global"
         >
+            <ak-sidebar-brand></ak-sidebar-brand>
             <ul class="pf-c-nav__list">
                 <slot></slot>
             </ul>
-            <ak-sidebar-version></ak-sidebar-version>
+            <ak-sidebar-user></ak-sidebar-user>
         </nav>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-sidebar": Sidebar;
     }
 }

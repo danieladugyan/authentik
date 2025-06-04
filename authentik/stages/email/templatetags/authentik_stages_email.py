@@ -1,5 +1,4 @@
 """authentik core inlining template tags"""
-
 from base64 import b64encode
 from pathlib import Path
 
@@ -30,9 +29,3 @@ def inline_static_binary(path: str) -> str:
             b64content = b64encode(_file.read().encode())
             return f"data:image/{result.suffix};base64,{b64content.decode('utf-8')}"
     return path
-
-
-@register.filter(name="indent")
-def indent_string(val, num_spaces=4):
-    """Intent text by a given amount of spaces"""
-    return val.replace("\n", "\n" + " " * num_spaces)

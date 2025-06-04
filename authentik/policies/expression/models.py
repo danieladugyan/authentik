@@ -1,5 +1,4 @@
 """authentik expression Policy Models"""
-
 from django.db import models
 from django.utils.translation import gettext as _
 from rest_framework.serializers import BaseSerializer

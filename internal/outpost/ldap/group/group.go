@@ -4,7 +4,6 @@ import (
 	"strconv"
 
 	"beryju.io/ldap"
-
 	"goauthentik.io/api/v3"
 	"goauthentik.io/internal/outpost/ldap/constants"
 	"goauthentik.io/internal/outpost/ldap/server"
@@ -51,7 +50,7 @@ func FromAPIGroup(g api.Group, si server.LDAPServerInstance) *LDAPGroup {
 		DN:             si.GetGroupDN(g.Name),
 		CN:             g.Name,
 		Uid:            string(g.Pk),
-		GidNumber:      si.GetGroupGidNumber(g),
+		GidNumber:      si.GetGidNumber(g),
 		Member:         si.UsersForGroup(g),
 		IsVirtualGroup: false,
 		IsSuperuser:    *g.IsSuperuser,
@@ -64,7 +63,7 @@ func FromAPIUser(u api.User, si server.LDAPServerInstance) *LDAPGroup {
 		DN:             si.GetVirtualGroupDN(u.Username),
 		CN:             u.Username,
 		Uid:            u.Uid,
-		GidNumber:      si.GetUserGidNumber(u),
+		GidNumber:      si.GetUidNumber(u),
 		Member:         []string{si.GetUserDN(u.Username)},
 		IsVirtualGroup: true,
 		IsSuperuser:    false,

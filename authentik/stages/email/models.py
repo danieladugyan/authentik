@@ -1,7 +1,7 @@
 """email stage models"""
-
 from os import R_OK, access
 from pathlib import Path
+from typing import Type
 
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
@@ -13,8 +13,6 @@ from rest_framework.serializers import BaseSerializer
 from structlog.stdlib import get_logger
 
 from authentik.flows.models import Stage
-from authentik.lib.config import CONFIG
-from authentik.lib.utils.time import timedelta_string_validator
 
 LOGGER = get_logger()
 
@@ -75,10 +73,8 @@ class EmailStage(Stage):
         default=False, help_text=_("Activate users upon completion of stage.")
     )
 
-    token_expiry = models.TextField(
-        default="minutes=30",
-        validators=[timedelta_string_validator],
-        help_text=_("Time the token sent is valid (Format: hours=3,minutes=17,seconds=300)."),
+    token_expiry = models.IntegerField(
+        default=30, help_text=_("Time in minutes the token sent is valid.")
     )
     subject = models.TextField(default="authentik")
     template = models.TextField(default=EmailTemplates.PASSWORD_RESET)
@@ -90,7 +86,7 @@ class EmailStage(Stage):
         return EmailStageSerializer
 
     @property
-    def view(self) -> type[View]:
+    def type(self) -> type[View]:
         from authentik.stages.email.stage import EmailStageView
 
         return EmailStageView
@@ -100,7 +96,7 @@ class EmailStage(Stage):
         return "ak-stage-email-form"
 
     @property
-    def backend_class(self) -> type[BaseEmailBackend]:
+    def backend_class(self) -> Type[BaseEmailBackend]:
         """Get the email backend class to use"""
         return EmailBackend
 
@@ -108,16 +104,7 @@ class EmailStage(Stage):
     def backend(self) -> BaseEmailBackend:
         """Get fully configured Email Backend instance"""
         if self.use_global_settings:
-            CONFIG.refresh("email.password")
-            return self.backend_class(
-                host=CONFIG.get("email.host"),
-                port=CONFIG.get_int("email.port"),
-                username=CONFIG.get("email.username"),
-                password=CONFIG.get("email.password"),
-                use_tls=CONFIG.get_bool("email.use_tls", False),
-                use_ssl=CONFIG.get_bool("email.use_ssl", False),
-                timeout=CONFIG.get_int("email.timeout"),
-            )
+            return self.backend_class()
         return self.backend_class(
             host=self.host,
             port=self.port,

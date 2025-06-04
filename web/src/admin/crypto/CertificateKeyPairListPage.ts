@@ -1,8 +1,7 @@
 import "@goauthentik/admin/crypto/CertificateGenerateForm";
 import "@goauthentik/admin/crypto/CertificateKeyPairForm";
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import "@goauthentik/components/ak-status-label";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { PFColor } from "@goauthentik/elements/Label";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
@@ -10,7 +9,6 @@ import "@goauthentik/elements/forms/ModalForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg, str } from "@lit/localize";
 import { CSSResult, TemplateResult, html } from "lit";
@@ -18,17 +16,12 @@ import { customElement, property } from "lit/decorators.js";
 
 import PFDescriptionList from "@patternfly/patternfly/components/DescriptionList/description-list.css";
 
-import {
-    CertificateKeyPair,
-    CryptoApi,
-    RbacPermissionsAssignedByUsersListModelEnum,
-} from "@goauthentik/api";
+import { CertificateKeyPair, CryptoApi } from "@goauthentik/api";
 
 @customElement("ak-crypto-certificate-list")
 export class CertificateKeyPairListPage extends TablePage<CertificateKeyPair> {
     expandable = true;
     checkbox = true;
-    clearOnRefresh = true;
 
     searchEnabled(): boolean {
         return true;
@@ -52,10 +45,13 @@ export class CertificateKeyPairListPage extends TablePage<CertificateKeyPair> {
         return super.styles.concat(PFDescriptionList);
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<CertificateKeyPair>> {
-        return new CryptoApi(DEFAULT_CONFIG).cryptoCertificatekeypairsList(
-            await this.defaultEndpointConfig(),
-        );
+    async apiEndpoint(page: number): Promise<PaginatedResponse<CertificateKeyPair>> {
+        return new CryptoApi(DEFAULT_CONFIG).cryptoCertificatekeypairsList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
     }
 
     columns(): TableColumn[] {
@@ -115,29 +111,21 @@ export class CertificateKeyPairListPage extends TablePage<CertificateKeyPair> {
         return [
             html`<div>${item.name}</div>
                 ${item.managed ? html`<small>${managedSubText}</small>` : html``}`,
-            html`<ak-status-label
-                type="info"
-                ?good=${item.privateKeyAvailable}
-                good-label=${msg(str`Yes (${item.privateKeyType?.toUpperCase()})`)}
-            >
-            </ak-status-label>`,
+            html`<ak-label color=${item.privateKeyAvailable ? PFColor.Green : PFColor.Grey}>
+                ${item.privateKeyAvailable
+                    ? msg(str`Yes (${item.privateKeyType?.toUpperCase()})`)
+                    : msg("No")}
+            </ak-label>`,
             html`<ak-label color=${color}> ${item.certExpiry?.toLocaleString()} </ak-label>`,
             html`<ak-forms-modal>
-                    <span slot="submit"> ${msg("Update")} </span>
-                    <span slot="header"> ${msg("Update Certificate-Key Pair")} </span>
-                    <ak-crypto-certificate-form slot="form" .instancePk=${item.pk}>
-                    </ak-crypto-certificate-form>
-                    <button slot="trigger" class="pf-c-button pf-m-plain">
-                        <pf-tooltip position="top" content=${msg("Edit")}>
-                            <i class="fas fa-edit"></i>
-                        </pf-tooltip>
-                    </button>
-                </ak-forms-modal>
-                <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikCryptoCertificatekeypair}
-                    objectPk=${item.pk}
-                >
-                </ak-rbac-object-permission-modal>`,
+                <span slot="submit"> ${msg("Update")} </span>
+                <span slot="header"> ${msg("Update Certificate-Key Pair")} </span>
+                <ak-crypto-certificate-form slot="form" .instancePk=${item.pk}>
+                </ak-crypto-certificate-form>
+                <button slot="trigger" class="pf-c-button pf-m-plain">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </ak-forms-modal>`,
         ];
     }
 
@@ -229,11 +217,5 @@ export class CertificateKeyPairListPage extends TablePage<CertificateKeyPair> {
                 </button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-crypto-certificate-list": CertificateKeyPairListPage;
     }
 }

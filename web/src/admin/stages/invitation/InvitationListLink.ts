@@ -9,6 +9,7 @@ import { until } from "lit/directives/until.js";
 import PFDescriptionList from "@patternfly/patternfly/components/DescriptionList/description-list.css";
 import PFForm from "@patternfly/patternfly/components/Form/form.css";
 import PFFormControl from "@patternfly/patternfly/components/FormControl/form-control.css";
+import PFFlex from "@patternfly/patternfly/layouts/Flex/flex.css";
 import PFBase from "@patternfly/patternfly/patternfly-base.css";
 
 import { Invitation, StagesApi } from "@goauthentik/api";
@@ -22,7 +23,7 @@ export class InvitationListLink extends AKElement {
     selectedFlow?: string;
 
     static get styles(): CSSResult[] {
-        return [PFBase, PFForm, PFFormControl, PFDescriptionList];
+        return [PFBase, PFForm, PFFormControl, PFFlex, PFDescriptionList];
     }
 
     renderLink(): string {
@@ -105,11 +106,5 @@ export class InvitationListLink extends AKElement {
                 </dd>
             </div>
         </dl>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-invitation-list-link": InvitationListLink;
     }
 }

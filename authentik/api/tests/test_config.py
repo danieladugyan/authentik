@@ -1,5 +1,4 @@
 """Test config API"""
-
 from json import loads
 
 from django.urls import reverse

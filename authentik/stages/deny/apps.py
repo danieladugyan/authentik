@@ -1,5 +1,4 @@
 """authentik deny stage app config"""
-
 from django.apps import AppConfig
 
 

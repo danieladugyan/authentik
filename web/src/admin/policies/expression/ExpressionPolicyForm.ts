@@ -1,10 +1,10 @@
-import { BasePolicyForm } from "@goauthentik/admin/policies/BasePolicyForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import { docLink } from "@goauthentik/common/global";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/CodeMirror";
-import { CodeMirrorMode } from "@goauthentik/elements/CodeMirror";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
+import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
@@ -14,11 +14,19 @@ import { ifDefined } from "lit/directives/if-defined.js";
 import { ExpressionPolicy, PoliciesApi } from "@goauthentik/api";
 
 @customElement("ak-policy-expression-form")
-export class ExpressionPolicyForm extends BasePolicyForm<ExpressionPolicy> {
+export class ExpressionPolicyForm extends ModelForm<ExpressionPolicy, string> {
     loadInstance(pk: string): Promise<ExpressionPolicy> {
         return new PoliciesApi(DEFAULT_CONFIG).policiesExpressionRetrieve({
             policyUuid: pk,
         });
+    }
+
+    getSuccessMessage(): string {
+        if (this.instance) {
+            return msg("Successfully updated policy.");
+        } else {
+            return msg("Successfully created policy.");
+        }
     }
 
     async send(data: ExpressionPolicy): Promise<ExpressionPolicy> {
@@ -27,18 +35,20 @@ export class ExpressionPolicyForm extends BasePolicyForm<ExpressionPolicy> {
                 policyUuid: this.instance.pk || "",
                 expressionPolicyRequest: data,
             });
+        } else {
+            return new PoliciesApi(DEFAULT_CONFIG).policiesExpressionCreate({
+                expressionPolicyRequest: data,
+            });
         }
-        return new PoliciesApi(DEFAULT_CONFIG).policiesExpressionCreate({
-            expressionPolicyRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <span>
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <div class="form-help-text">
                 ${msg(
                     "Executes the python snippet to determine whether to allow or deny a request.",
                 )}
-            </span>
+            </div>
             <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
@@ -52,7 +62,7 @@ export class ExpressionPolicyForm extends BasePolicyForm<ExpressionPolicy> {
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.executionLogging ?? false}
+                        ?checked=${first(this.instance?.executionLogging, false)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -76,30 +86,22 @@ export class ExpressionPolicyForm extends BasePolicyForm<ExpressionPolicy> {
                         name="expression"
                     >
                         <ak-codemirror
-                            mode=${CodeMirrorMode.Python}
+                            mode="python"
                             value="${ifDefined(this.instance?.expression)}"
                         >
                         </ak-codemirror>
                         <p class="pf-c-form__helper-text">
                             ${msg("Expression using Python.")}
                             <a
-                                rel="noopener noreferrer"
                                 target="_blank"
-                                href="${docLink(
-                                    "/docs/customize/policies/expression?utm_source=authentik",
-                                )}"
+                                href="${docLink("/docs/policies/expression?utm_source=authentik")}"
                             >
                                 ${msg("See documentation for a list of all variables.")}
                             </a>
                         </p>
                     </ak-form-element-horizontal>
                 </div>
-            </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-expression-form": ExpressionPolicyForm;
+            </ak-form-group>
+        </form>`;
     }
 }

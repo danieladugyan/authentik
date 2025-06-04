@@ -1,5 +1,6 @@
+import { RenderFlowOption } from "@goauthentik/admin/flows/utils";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { groupBy } from "@goauthentik/common/utils";
+import { first, groupBy } from "@goauthentik/common/utils";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 import "@goauthentik/elements/forms/Radio";
@@ -10,9 +11,11 @@ import { TemplateResult, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 
 import {
+    Flow,
     FlowStageBinding,
     FlowsApi,
     FlowsInstancesListDesignationEnum,
+    FlowsInstancesListRequest,
     InvalidResponseActionEnum,
     PolicyEngineMode,
     Stage,
@@ -39,8 +42,9 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
     getSuccessMessage(): string {
         if (this.instance?.pk) {
             return msg("Successfully updated binding.");
+        } else {
+            return msg("Successfully created binding.");
         }
-        return msg("Successfully created binding.");
     }
 
     send(data: FlowStageBinding): Promise<unknown> {
@@ -49,13 +53,14 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
                 fsbUuid: this.instance.pk,
                 patchedFlowStageBindingRequest: data,
             });
+        } else {
+            if (this.targetPk) {
+                data.target = this.targetPk;
+            }
+            return new FlowsApi(DEFAULT_CONFIG).flowsBindingsCreate({
+                flowStageBindingRequest: data,
+            });
         }
-        if (this.targetPk) {
-            data.target = this.targetPk;
-        }
-        return new FlowsApi(DEFAULT_CONFIG).flowsBindingsCreate({
-            flowStageBindingRequest: data,
-        });
     }
 
     async getOrder(): Promise<number> {
@@ -81,16 +86,38 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
             ?required=${true}
             name="target"
         >
-            <ak-flow-search
-                flowType=${FlowsInstancesListDesignationEnum.Authorization}
-                .currentFlow=${this.instance?.target}
-                required
-            ></ak-flow-search>
+            <ak-search-select
+                .fetchObjects=${async (query?: string): Promise<Flow[]> => {
+                    const args: FlowsInstancesListRequest = {
+                        ordering: "slug",
+                        designation: FlowsInstancesListDesignationEnum.Authorization,
+                    };
+                    if (query !== undefined) {
+                        args.search = query;
+                    }
+                    const flows = await new FlowsApi(DEFAULT_CONFIG).flowsInstancesList(args);
+                    return flows.results;
+                }}
+                .renderElement=${(flow: Flow): string => {
+                    return RenderFlowOption(flow);
+                }}
+                .renderDescription=${(flow: Flow): TemplateResult => {
+                    return html`${flow.name}`;
+                }}
+                .value=${(flow: Flow | undefined): string | undefined => {
+                    return flow?.pk;
+                }}
+                .selected=${(flow: Flow): boolean => {
+                    return flow.pk === this.instance?.target;
+                }}
+            >
+            </ak-search-select>
         </ak-form-element-horizontal>`;
     }
 
     renderForm(): TemplateResult {
-        return html` ${this.renderTarget()}
+        return html`<form class="pf-c-form pf-m-horizontal">
+            ${this.renderTarget()}
             <ak-form-element-horizontal label=${msg("Stage")} ?required=${true} name="stage">
                 <ak-search-select
                     .fetchObjects=${async (query?: string): Promise<Stage[]> => {
@@ -121,7 +148,7 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
             <ak-form-element-horizontal label=${msg("Order")} ?required=${true} name="order">
                 <input
                     type="number"
-                    value="${this.instance?.order ?? this.defaultOrder}"
+                    value="${first(this.instance?.order, this.defaultOrder)}"
                     class="pf-c-form-control"
                     required
                 />
@@ -131,7 +158,7 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.evaluateOnPlan ?? false}
+                        ?checked=${first(this.instance?.evaluateOnPlan, false)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -149,7 +176,7 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.reEvaluatePolicies ?? true}
+                        ?checked=${first(this.instance?.reEvaluatePolicies, true)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -159,7 +186,7 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
                     <span class="pf-c-switch__label">${msg("Evaluate when stage is run")}</span>
                 </label>
                 <p class="pf-c-form__helper-text">
-                    ${msg("Evaluate policies before the Stage is presented to the user.")}
+                    ${msg("Evaluate policies before the Stage is present to the user.")}
                 </p>
             </ak-form-element-horizontal>
             <ak-form-element-horizontal
@@ -221,12 +248,7 @@ export class StageBindingForm extends ModelForm<FlowStageBinding, string> {
                     .value=${this.instance?.policyEngineMode}
                 >
                 </ak-radio>
-            </ak-form-element-horizontal>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-binding-form": StageBindingForm;
+            </ak-form-element-horizontal>
+        </form>`;
     }
 }

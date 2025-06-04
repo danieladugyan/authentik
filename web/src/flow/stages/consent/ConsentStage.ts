@@ -3,7 +3,7 @@ import "@goauthentik/flow/FormStatic";
 import { BaseStage } from "@goauthentik/flow/stages/base";
 
 import { msg } from "@lit/localize";
-import { CSSResult, TemplateResult, html, nothing } from "lit";
+import { CSSResult, TemplateResult, html } from "lit";
 import { customElement } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
@@ -16,11 +16,7 @@ import PFTitle from "@patternfly/patternfly/components/Title/title.css";
 import PFBase from "@patternfly/patternfly/patternfly-base.css";
 import PFSpacing from "@patternfly/patternfly/utilities/Spacing/spacing.css";
 
-import {
-    ConsentChallenge,
-    ConsentChallengeResponseRequest,
-    ConsentPermission,
-} from "@goauthentik/api";
+import { ConsentChallenge, ConsentChallengeResponseRequest, Permission } from "@goauthentik/api";
 
 @customElement("ak-stage-consent")
 export class ConsentStage extends BaseStage<ConsentChallenge, ConsentChallengeResponseRequest> {
@@ -28,7 +24,7 @@ export class ConsentStage extends BaseStage<ConsentChallenge, ConsentChallengeRe
         return [PFBase, PFLogin, PFList, PFForm, PFSpacing, PFFormControl, PFTitle, PFButton];
     }
 
-    renderPermissions(perms: ConsentPermission[]): TemplateResult {
+    renderPermissions(perms: Permission[]): TemplateResult {
         return html`${perms.map((permission) => {
             if (permission.name === "") {
                 return html``;
@@ -56,7 +52,7 @@ export class ConsentStage extends BaseStage<ConsentChallenge, ConsentChallengeRe
                               ${this.renderPermissions(this.challenge.permissions)}
                           </ul>
                       `
-                    : nothing}
+                    : html``}
             </div>
         `;
     }
@@ -76,7 +72,7 @@ export class ConsentStage extends BaseStage<ConsentChallenge, ConsentChallengeRe
                               ${this.renderPermissions(this.challenge.permissions)}
                           </ul>
                       `
-                    : nothing}
+                    : html``}
             </div>
             <div class="pf-c-form__group pf-u-mt-md">
                 ${this.challenge.additionalPermissions.length > 0
@@ -88,14 +84,15 @@ export class ConsentStage extends BaseStage<ConsentChallenge, ConsentChallengeRe
                               ${this.renderPermissions(this.challenge.additionalPermissions)}
                           </ul>
                       `
-                    : nothing}
+                    : html``}
             </div>
         `;
     }
 
     render(): TemplateResult {
         if (!this.challenge) {
-            return html`<ak-empty-state loading> </ak-empty-state>`;
+            return html`<ak-empty-state ?loading="${true}" header=${msg("Loading")}>
+            </ak-empty-state>`;
         }
         return html`<header class="pf-c-login__main-header">
                 <h1 class="pf-c-title pf-m-3xl">${this.challenge.flowInfo?.title}</h1>
@@ -134,11 +131,5 @@ export class ConsentStage extends BaseStage<ConsentChallenge, ConsentChallengeRe
             <footer class="pf-c-login__main-footer">
                 <ul class="pf-c-login__main-footer-links"></ul>
             </footer>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-consent": ConsentStage;
     }
 }

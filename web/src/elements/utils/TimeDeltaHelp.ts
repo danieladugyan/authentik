@@ -1,5 +1,5 @@
 import { AKElement } from "@goauthentik/elements/Base";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
+import "@goauthentik/elements/Tooltip";
 
 import { msg } from "@lit/localize";
 import { CSSResult, TemplateResult, html } from "lit";
@@ -19,33 +19,26 @@ export class TimeDeltaHelp extends AKElement {
     }
 
     render(): TemplateResult {
-        return html`<div class="pf-c-form__helper-text">
-            <span>
+        return html` <ak-tooltip>
+            <p class="pf-c-form__helper-text" slot="trigger">
                 ${this.negative
-                    ? msg(html`(Format: <code>hours=-1;minutes=-2;seconds=-3)</code>.`)
-                    : msg(html`(Format: <code>hours=1;minutes=2;seconds=3).</code>`)}
-            </span>
-            <pf-tooltip position="top">
+                    ? msg("(Format: hours=-1;minutes=-2;seconds=-3).")
+                    : msg("(Format: hours=1;minutes=2;seconds=3).")}
                 <i class="pf-icon fa fa-question-circle" aria-hidden="true"></i>
-                <div slot="content">
-                    ${msg("The following keywords are supported:")}
-                    <ul class="pf-c-list">
-                        <li><pre>microseconds</pre></li>
-                        <li><pre>milliseconds</pre></li>
-                        <li><pre>seconds</pre></li>
-                        <li><pre>minutes</pre></li>
-                        <li><pre>hours</pre></li>
-                        <li><pre>days</pre></li>
-                        <li><pre>weeks</pre></li>
-                    </ul>
-                </div>
-            </pf-tooltip>
-        </div>`;
-    }
-}
+            </p>
 
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-utils-time-delta-help": TimeDeltaHelp;
+            <div slot="tooltip">
+                ${msg("The following keywords are supported:")}
+                <ul class="pf-c-list">
+                    <li><pre>microseconds</pre></li>
+                    <li><pre>milliseconds</pre></li>
+                    <li><pre>seconds</pre></li>
+                    <li><pre>minutes</pre></li>
+                    <li><pre>hours</pre></li>
+                    <li><pre>days</pre></li>
+                    <li><pre>weeks</pre></li>
+                </ul>
+            </div>
+        </ak-tooltip>`;
     }
 }

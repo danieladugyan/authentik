@@ -1,5 +1,4 @@
 """deny Stage API Views"""
-
 from rest_framework.viewsets import ModelViewSet
 
 from authentik.core.api.used_by import UsedByMixin
@@ -12,7 +11,7 @@ class DenyStageSerializer(StageSerializer):
 
     class Meta:
         model = DenyStage
-        fields = StageSerializer.Meta.fields + ["deny_message"]
+        fields = StageSerializer.Meta.fields
 
 
 class DenyStageViewSet(UsedByMixin, ModelViewSet):

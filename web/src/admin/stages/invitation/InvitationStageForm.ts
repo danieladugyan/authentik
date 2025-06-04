@@ -1,7 +1,8 @@
-import { BaseStageForm } from "@goauthentik/admin/stages/BaseStageForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
+import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
@@ -10,11 +11,19 @@ import { customElement } from "lit/decorators.js";
 import { InvitationStage, StagesApi } from "@goauthentik/api";
 
 @customElement("ak-stage-invitation-form")
-export class InvitationStageForm extends BaseStageForm<InvitationStage> {
+export class InvitationStageForm extends ModelForm<InvitationStage, string> {
     loadInstance(pk: string): Promise<InvitationStage> {
         return new StagesApi(DEFAULT_CONFIG).stagesInvitationStagesRetrieve({
             stageUuid: pk,
         });
+    }
+
+    getSuccessMessage(): string {
+        if (this.instance) {
+            return msg("Successfully updated stage.");
+        } else {
+            return msg("Successfully created stage.");
+        }
     }
 
     async send(data: InvitationStage): Promise<InvitationStage> {
@@ -23,16 +32,18 @@ export class InvitationStageForm extends BaseStageForm<InvitationStage> {
                 stageUuid: this.instance.pk || "",
                 invitationStageRequest: data,
             });
+        } else {
+            return new StagesApi(DEFAULT_CONFIG).stagesInvitationStagesCreate({
+                invitationStageRequest: data,
+            });
         }
-        return new StagesApi(DEFAULT_CONFIG).stagesInvitationStagesCreate({
-            invitationStageRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <span>
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <div class="form-help-text">
                 ${msg("This stage can be included in enrollment flows to accept invitations.")}
-            </span>
+            </div>
             <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
@@ -49,7 +60,10 @@ export class InvitationStageForm extends BaseStageForm<InvitationStage> {
                             <input
                                 class="pf-c-switch__input"
                                 type="checkbox"
-                                ?checked=${this.instance?.continueFlowWithoutInvitation ?? false}
+                                ?checked=${first(
+                                    this.instance?.continueFlowWithoutInvitation,
+                                    true,
+                                )}
                             />
                             <span class="pf-c-switch__toggle">
                                 <span class="pf-c-switch__toggle-icon">
@@ -67,12 +81,7 @@ export class InvitationStageForm extends BaseStageForm<InvitationStage> {
                         </p>
                     </ak-form-element-horizontal>
                 </div>
-            </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-invitation-form": InvitationStageForm;
+            </ak-form-group>
+        </form>`;
     }
 }

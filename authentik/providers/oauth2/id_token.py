@@ -1,22 +1,18 @@
 """id_token utils"""
-
 from dataclasses import asdict, dataclass, field
-from hashlib import sha256
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import models
 from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from authentik.core.models import default_token_duration
 from authentik.events.signals import get_login_event
 from authentik.lib.generators import generate_id
 from authentik.providers.oauth2.constants import (
     ACR_AUTHENTIK_DEFAULT,
     AMR_MFA,
     AMR_PASSWORD,
-    AMR_SMART_CARD,
     AMR_WEBAUTHN,
 )
 from authentik.stages.password.stage import PLAN_CONTEXT_METHOD, PLAN_CONTEXT_METHOD_ARGS
@@ -25,13 +21,8 @@ if TYPE_CHECKING:
     from authentik.providers.oauth2.models import BaseGrantModel, OAuth2Provider
 
 
-def hash_session_key(session_key: str) -> str:
-    """Hash the session key for inclusion in JWTs as `sid`"""
-    return sha256(session_key.encode("ascii")).hexdigest()
-
-
 class SubModes(models.TextChoices):
-    """Mode after which 'sub' attribute is generated, for compatibility reasons"""
+    """Mode after which 'sub' attribute is generateed, for compatibility reasons"""
 
     HASHED_USER_ID = "hashed_user_id", _("Based on the Hashed User ID")
     USER_ID = "user_id", _("Based on user ID")
@@ -51,6 +42,7 @@ class SubModes(models.TextChoices):
 
 
 @dataclass(slots=True)
+# pylint: disable=too-many-instance-attributes
 class IDToken:
     """The primary extension that OpenID Connect makes to OAuth 2.0 to enable End-Users to be
     Authenticated is the ID Token data structure. The ID Token is a security token that contains
@@ -58,49 +50,45 @@ class IDToken:
     and potentially other requested Claims. The ID Token is represented as a
     JSON Web Token (JWT) [JWT].
 
-    https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-    https://www.iana.org/assignments/jwt/jwt.xhtml"""
+    https://openid.net/specs/openid-connect-core-1_0.html#IDToken"""
 
     # Issuer, https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.1
-    iss: str | None = None
+    iss: Optional[str] = None
     # Subject, https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.2
-    sub: str | None = None
+    sub: Optional[str] = None
     # Audience, https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.3
-    aud: str | list[str] | None = None
+    aud: Optional[str] = None
     # Expiration time, https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.4
-    exp: int | None = None
+    exp: Optional[int] = None
     # Issued at, https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.6
-    iat: int | None = None
+    iat: Optional[int] = None
     # Time when the authentication occurred,
     # https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-    auth_time: int | None = None
+    auth_time: Optional[int] = None
     # Authentication Context Class Reference,
     # https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-    acr: str | None = ACR_AUTHENTIK_DEFAULT
+    acr: Optional[str] = ACR_AUTHENTIK_DEFAULT
     # Authentication Methods References,
     # https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-    amr: list[str] | None = None
+    amr: Optional[list[str]] = None
     # Code hash value, http://openid.net/specs/openid-connect-core-1_0.html
-    c_hash: str | None = None
+    c_hash: Optional[str] = None
     # Value used to associate a Client session with an ID Token,
     # http://openid.net/specs/openid-connect-core-1_0.html
-    nonce: str | None = None
+    nonce: Optional[str] = None
     # Access Token hash value, http://openid.net/specs/openid-connect-core-1_0.html
-    at_hash: str | None = None
-    # Session ID, https://openid.net/specs/openid-connect-frontchannel-1_0.html#ClaimsContents
-    sid: str | None = None
+    at_hash: Optional[str] = None
 
     claims: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
+    # pylint: disable=too-many-locals
     def new(
         provider: "OAuth2Provider", token: "BaseGrantModel", request: HttpRequest, **kwargs
     ) -> "IDToken":
         """Create ID Token"""
         id_token = IDToken(provider, token, **kwargs)
-        id_token.exp = int(
-            (token.expires if token.expires is not None else default_token_duration()).timestamp()
-        )
+        id_token.exp = int(token.expires.timestamp())
         id_token.iss = provider.get_issuer(request)
         id_token.aud = provider.client_id
         id_token.claims = {}
@@ -126,11 +114,9 @@ class IDToken:
         now = timezone.now()
         id_token.iat = int(now.timestamp())
         id_token.auth_time = int(token.auth_time.timestamp())
-        if token.session:
-            id_token.sid = hash_session_key(token.session.session.session_key)
 
         # We use the timestamp of the user's last successful login (EventAction.LOGIN) for auth_time
-        auth_event = get_login_event(token.session)
+        auth_event = get_login_event(request)
         if auth_event:
             # Also check which method was used for authentication
             method = auth_event.context.get(PLAN_CONTEXT_METHOD, "")
@@ -140,10 +126,9 @@ class IDToken:
                 amr.append(AMR_PASSWORD)
             if method == "auth_webauthn_pwl":
                 amr.append(AMR_WEBAUTHN)
-            if "certificate" in method_args:
-                amr.append(AMR_SMART_CARD)
             if "mfa_devices" in method_args:
-                amr.append(AMR_MFA)
+                if len(amr) > 0:
+                    amr.append(AMR_MFA)
             if amr:
                 id_token.amr = amr
 

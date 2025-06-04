@@ -1,5 +1,4 @@
 """merge utils"""
-
 from deepmerge import Merger
 
 MERGE_LIST_UNIQUE = Merger(

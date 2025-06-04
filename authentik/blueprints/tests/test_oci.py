@@ -1,5 +1,4 @@
 """Test blueprints OCI"""
-
 from django.test import TransactionTestCase
 from requests_mock import Mocker
 

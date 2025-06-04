@@ -1,6 +1,5 @@
 """deny stage models"""
 
-from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from rest_framework.serializers import BaseSerializer
@@ -11,8 +10,6 @@ from authentik.flows.models import Stage
 class DenyStage(Stage):
     """Cancels the current flow."""
 
-    deny_message = models.TextField(blank=True, default="")
-
     @property
     def serializer(self) -> type[BaseSerializer]:
         from authentik.stages.deny.api import DenyStageSerializer
@@ -20,7 +17,7 @@ class DenyStage(Stage):
         return DenyStageSerializer
 
     @property
-    def view(self) -> type[View]:
+    def type(self) -> type[View]:
         from authentik.stages.deny.stage import DenyStageView
 
         return DenyStageView

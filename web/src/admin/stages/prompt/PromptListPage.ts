@@ -1,7 +1,6 @@
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import "@goauthentik/admin/stages/prompt/PromptForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { PFSize } from "@goauthentik/common/enums";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/elements/buttons/ModalButton";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
@@ -9,13 +8,12 @@ import "@goauthentik/elements/forms/ModalForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
-import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
-import { Prompt, RbacPermissionsAssignedByUsersListModelEnum, StagesApi } from "@goauthentik/api";
+import { Prompt, StagesApi } from "@goauthentik/api";
 
 @customElement("ak-stage-prompt-list")
 export class PromptListPage extends TablePage<Prompt> {
@@ -33,15 +31,17 @@ export class PromptListPage extends TablePage<Prompt> {
     }
 
     checkbox = true;
-    clearOnRefresh = true;
 
     @property()
     order = "name";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Prompt>> {
-        return new StagesApi(DEFAULT_CONFIG).stagesPromptPromptsList(
-            await this.defaultEndpointConfig(),
-        );
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Prompt>> {
+        return new StagesApi(DEFAULT_CONFIG).stagesPromptPromptsList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
     }
 
     columns(): TableColumn[] {
@@ -86,38 +86,25 @@ export class PromptListPage extends TablePage<Prompt> {
             html`${item.promptstageSet?.map((stage) => {
                 return html`<li>${stage.name}</li>`;
             })}`,
-            html`<ak-forms-modal size=${PFSize.XLarge}>
-                    <span slot="submit"> ${msg("Update")} </span>
-                    <span slot="header"> ${msg("Update Prompt")} </span>
-                    <ak-prompt-form slot="form" .instancePk=${item.pk}> </ak-prompt-form>
-                    <button slot="trigger" class="pf-c-button pf-m-plain">
-                        <pf-tooltip position="top" content=${msg("Edit")}>
-                            <i class="fas fa-edit"></i>
-                        </pf-tooltip>
-                    </button>
-                </ak-forms-modal>
-                <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikStagesPromptPrompt}
-                    objectPk=${item.pk}
-                >
-                </ak-rbac-object-permission-modal> `,
+            html`<ak-forms-modal>
+                <span slot="submit"> ${msg("Update")} </span>
+                <span slot="header"> ${msg("Update Prompt")} </span>
+                <ak-prompt-form slot="form" .instancePk=${item.pk}> </ak-prompt-form>
+                <button slot="trigger" class="pf-c-button pf-m-plain">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </ak-forms-modal>`,
         ];
     }
 
     renderObjectCreate(): TemplateResult {
         return html`
-            <ak-forms-modal size=${PFSize.XLarge}>
+            <ak-forms-modal>
                 <span slot="submit"> ${msg("Create")} </span>
                 <span slot="header"> ${msg("Create Prompt")} </span>
                 <ak-prompt-form slot="form"> </ak-prompt-form>
                 <button slot="trigger" class="pf-c-button pf-m-primary">${msg("Create")}</button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-prompt-list": PromptListPage;
     }
 }

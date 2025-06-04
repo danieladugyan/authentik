@@ -1,7 +1,5 @@
 """Error Response schema, from https://github.com/axnsan12/drf-yasg/issues/224"""
-
 from django.utils.translation import gettext_lazy as _
-from drf_spectacular.generators import SchemaGenerator
 from drf_spectacular.plumbing import (
     ResolvedComponent,
     build_array_type,
@@ -10,10 +8,6 @@ from drf_spectacular.plumbing import (
 )
 from drf_spectacular.settings import spectacular_settings
 from drf_spectacular.types import OpenApiTypes
-from rest_framework.settings import api_settings
-
-from authentik.api.apps import AuthentikAPIConfig
-from authentik.api.pagination import PAGINATION_COMPONENT_NAME, PAGINATION_SCHEMA
 
 
 def build_standard_type(obj, **kwargs):
@@ -34,7 +28,7 @@ GENERIC_ERROR = build_object_type(
 VALIDATION_ERROR = build_object_type(
     description=_("Validation Error"),
     properties={
-        api_settings.NON_FIELD_ERRORS_KEY: build_array_type(build_standard_type(OpenApiTypes.STR)),
+        "non_field_errors": build_array_type(build_standard_type(OpenApiTypes.STR)),
         "code": build_standard_type(OpenApiTypes.STR),
     },
     required=[],
@@ -42,19 +36,7 @@ VALIDATION_ERROR = build_object_type(
 )
 
 
-def create_component(generator: SchemaGenerator, name, schema, type_=ResolvedComponent.SCHEMA):
-    """Register a component and return a reference to it."""
-    component = ResolvedComponent(
-        name=name,
-        type=type_,
-        schema=schema,
-        object=name,
-    )
-    generator.registry.register_on_missing(component)
-    return component
-
-
-def postprocess_schema_responses(result, generator: SchemaGenerator, **kwargs):
+def postprocess_schema_responses(result, generator, **kwargs):  # noqa: W0613
     """Workaround to set a default response for endpoints.
     Workaround suggested at
     <https://github.com/tfranzel/drf-spectacular/issues/119#issuecomment-656970357>
@@ -62,10 +44,19 @@ def postprocess_schema_responses(result, generator: SchemaGenerator, **kwargs):
     <https://github.com/tfranzel/drf-spectacular/issues/101>.
     """
 
-    create_component(generator, PAGINATION_COMPONENT_NAME, PAGINATION_SCHEMA)
+    def create_component(name, schema, type_=ResolvedComponent.SCHEMA):
+        """Register a component and return a reference to it."""
+        component = ResolvedComponent(
+            name=name,
+            type=type_,
+            schema=schema,
+            object=name,
+        )
+        generator.registry.register_on_missing(component)
+        return component
 
-    generic_error = create_component(generator, "GenericError", GENERIC_ERROR)
-    validation_error = create_component(generator, "ValidationError", VALIDATION_ERROR)
+    generic_error = create_component("GenericError", GENERIC_ERROR)
+    validation_error = create_component("ValidationError", VALIDATION_ERROR)
 
     for path in result["paths"].values():
         for method in path.values():
@@ -102,12 +93,3 @@ def postprocess_schema_responses(result, generator: SchemaGenerator, **kwargs):
             comp = result["components"]["schemas"][component]
             comp["additionalProperties"] = {}
     return result
-
-
-def preprocess_schema_exclude_non_api(endpoints, **kwargs):
-    """Filter out all API Views which are not mounted under /api"""
-    return [
-        (path, path_regex, method, callback)
-        for path, path_regex, method, callback in endpoints
-        if path.startswith("/" + AuthentikAPIConfig.mountpoint)
-    ]

@@ -1,9 +1,7 @@
 import "@goauthentik/admin/groups/MemberSelectModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/CodeMirror";
-import { CodeMirrorMode } from "@goauthentik/elements/CodeMirror";
-import "@goauthentik/elements/ak-dual-select/ak-dual-select-provider";
-import { DataProvision, DualSelectPair } from "@goauthentik/elements/ak-dual-select/types";
 import "@goauthentik/elements/chips/Chip";
 import "@goauthentik/elements/chips/ChipGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
@@ -16,11 +14,7 @@ import { CSSResult, TemplateResult, css, html } from "lit";
 import { customElement } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
-import { CoreApi, CoreGroupsListRequest, Group, RbacApi, Role } from "@goauthentik/api";
-
-export function rbacRolePair(item: Role): DualSelectPair {
-    return [item.pk, html`<div class="selection-main">${item.name}</div>`, item.name];
-}
+import { CoreApi, CoreGroupsListRequest, Group } from "@goauthentik/api";
 
 @customElement("ak-group-form")
 export class GroupForm extends ModelForm<Group, string> {
@@ -38,14 +32,15 @@ export class GroupForm extends ModelForm<Group, string> {
     loadInstance(pk: string): Promise<Group> {
         return new CoreApi(DEFAULT_CONFIG).coreGroupsRetrieve({
             groupUuid: pk,
-            includeUsers: false,
         });
     }
 
     getSuccessMessage(): string {
-        return this.instance
-            ? msg("Successfully updated group.")
-            : msg("Successfully created group.");
+        if (this.instance) {
+            return msg("Successfully updated group.");
+        } else {
+            return msg("Successfully created group.");
+        }
     }
 
     async send(data: Group): Promise<Group> {
@@ -54,15 +49,17 @@ export class GroupForm extends ModelForm<Group, string> {
                 groupUuid: this.instance.pk,
                 patchedGroupRequest: data,
             });
+        } else {
+            data.users = [];
+            return new CoreApi(DEFAULT_CONFIG).coreGroupsCreate({
+                groupRequest: data,
+            });
         }
-        data.users = [];
-        return new CoreApi(DEFAULT_CONFIG).coreGroupsCreate({
-            groupRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
                     value="${ifDefined(this.instance?.name)}"
@@ -75,7 +72,7 @@ export class GroupForm extends ModelForm<Group, string> {
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.isSuperuser ?? false}
+                        ?checked=${first(this.instance?.isSuperuser, false)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -116,50 +113,20 @@ export class GroupForm extends ModelForm<Group, string> {
                 >
                 </ak-search-select>
             </ak-form-element-horizontal>
-            <ak-form-element-horizontal label=${msg("Roles")} name="roles">
-                <ak-dual-select-provider
-                    .provider=${(page: number, search?: string): Promise<DataProvision> => {
-                        return new RbacApi(DEFAULT_CONFIG)
-                            .rbacRolesList({
-                                page: page,
-                                search: search,
-                            })
-                            .then((results) => {
-                                return {
-                                    pagination: results.pagination,
-                                    options: results.results.map(rbacRolePair),
-                                };
-                            });
-                    }}
-                    .selected=${(this.instance?.rolesObj ?? []).map(rbacRolePair)}
-                    available-label="${msg("Available Roles")}"
-                    selected-label="${msg("Selected Roles")}"
-                ></ak-dual-select-provider>
-                <p class="pf-c-form__helper-text">
-                    ${msg(
-                        "Select roles to grant this groups' users' permissions from the selected roles.",
-                    )}
-                </p>
-            </ak-form-element-horizontal>
             <ak-form-element-horizontal
                 label=${msg("Attributes")}
                 ?required=${true}
                 name="attributes"
             >
                 <ak-codemirror
-                    mode=${CodeMirrorMode.YAML}
-                    value="${YAML.stringify(this.instance?.attributes ?? {})}"
+                    mode="yaml"
+                    value="${YAML.stringify(first(this.instance?.attributes, {}))}"
                 >
                 </ak-codemirror>
                 <p class="pf-c-form__helper-text">
                     ${msg("Set custom attributes using YAML or JSON.")}
                 </p>
-            </ak-form-element-horizontal>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-group-form": GroupForm;
+            </ak-form-element-horizontal>
+        </form>`;
     }
 }

@@ -1,8 +1,7 @@
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import { docLink } from "@goauthentik/common/global";
-import "@goauthentik/components/ak-toggle-group";
+import { first } from "@goauthentik/common/utils";
 import "@goauthentik/elements/CodeMirror";
-import { CodeMirrorMode } from "@goauthentik/elements/CodeMirror";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
@@ -10,18 +9,19 @@ import "@goauthentik/elements/forms/SearchSelect";
 import YAML from "yaml";
 
 import { msg } from "@lit/localize";
-import { CSSResult, TemplateResult, html } from "lit";
+import { CSSResult, TemplateResult, css, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 import PFContent from "@patternfly/patternfly/components/Content/content.css";
+import PFToggleGroup from "@patternfly/patternfly/components/ToggleGroup/toggle-group.css";
 
 import { BlueprintFile, BlueprintInstance, ManagedApi } from "@goauthentik/api";
 
 enum blueprintSource {
-    file = "file",
-    oci = "oci",
-    internal = "internal",
+    file,
+    oci,
+    internal,
 }
 
 @customElement("ak-blueprint-form")
@@ -43,13 +43,23 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
     }
 
     getSuccessMessage(): string {
-        return this.instance
-            ? msg("Successfully updated instance.")
-            : msg("Successfully created instance.");
+        if (this.instance) {
+            return msg("Successfully updated instance.");
+        } else {
+            return msg("Successfully created instance.");
+        }
     }
 
     static get styles(): CSSResult[] {
-        return [...super.styles, PFContent];
+        return super.styles.concat(
+            PFToggleGroup,
+            PFContent,
+            css`
+                .pf-c-toggle-group {
+                    justify-content: center;
+                }
+            `,
+        );
     }
 
     async send(data: BlueprintInstance): Promise<BlueprintInstance> {
@@ -58,14 +68,16 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
                 instanceUuid: this.instance.pk,
                 blueprintInstanceRequest: data,
             });
+        } else {
+            return new ManagedApi(DEFAULT_CONFIG).managedBlueprintsCreate({
+                blueprintInstanceRequest: data,
+            });
         }
-        return new ManagedApi(DEFAULT_CONFIG).managedBlueprintsCreate({
-            blueprintInstanceRequest: data,
-        });
     }
 
     renderForm(): TemplateResult {
-        return html` <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
+        return html`<form class="pf-c-form pf-m-horizontal">
+            <ak-form-element-horizontal label=${msg("Name")} ?required=${true} name="name">
                 <input
                     type="text"
                     value="${ifDefined(this.instance?.name)}"
@@ -78,7 +90,7 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
                     <input
                         class="pf-c-switch__input"
                         type="checkbox"
-                        ?checked=${this.instance?.enabled ?? true}
+                        ?checked=${first(this.instance?.enabled, true)}
                     />
                     <span class="pf-c-switch__toggle">
                         <span class="pf-c-switch__toggle-icon">
@@ -93,16 +105,52 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
             </ak-form-element-horizontal>
             <div class="pf-c-card pf-m-selectable pf-m-selected">
                 <div class="pf-c-card__body">
-                    <ak-toggle-group
-                        value=${this.source}
-                        @ak-toggle=${(ev: CustomEvent<{ value: blueprintSource }>) => {
-                            this.source = ev.detail.value;
-                        }}
-                    >
-                        <option value=${blueprintSource.file}>${msg("Local path")}</option>
-                        <option value=${blueprintSource.oci}>${msg("OCI Registry")}</option>
-                        <option value=${blueprintSource.internal}>${msg("Internal")}</option>
-                    </ak-toggle-group>
+                    <div class="pf-c-toggle-group">
+                        <div class="pf-c-toggle-group__item">
+                            <button
+                                class="pf-c-toggle-group__button ${this.source ===
+                                blueprintSource.file
+                                    ? "pf-m-selected"
+                                    : ""}"
+                                type="button"
+                                @click=${() => {
+                                    this.source = blueprintSource.file;
+                                }}
+                            >
+                                <span class="pf-c-toggle-group__text">${msg("Local path")}</span>
+                            </button>
+                        </div>
+                        <div class="pf-c-divider pf-m-vertical" role="separator"></div>
+                        <div class="pf-c-toggle-group__item">
+                            <button
+                                class="pf-c-toggle-group__button ${this.source ===
+                                blueprintSource.oci
+                                    ? "pf-m-selected"
+                                    : ""}"
+                                type="button"
+                                @click=${() => {
+                                    this.source = blueprintSource.oci;
+                                }}
+                            >
+                                <span class="pf-c-toggle-group__text">${msg("OCI Registry")}</span>
+                            </button>
+                        </div>
+                        <div class="pf-c-divider pf-m-vertical" role="separator"></div>
+                        <div class="pf-c-toggle-group__item">
+                            <button
+                                class="pf-c-toggle-group__button ${this.source ===
+                                blueprintSource.internal
+                                    ? "pf-m-selected"
+                                    : ""}"
+                                type="button"
+                                @click=${() => {
+                                    this.source = blueprintSource.internal;
+                                }}
+                            >
+                                <span class="pf-c-toggle-group__text">${msg("Internal")}</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="pf-c-card__footer">
                     ${this.source === blueprintSource.file
@@ -155,9 +203,8 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
                                   ${msg("See more about OCI support here:")}&nbsp;
                                   <a
                                       target="_blank"
-                                      rel="noopener noreferrer"
                                       href="${docLink(
-                                          "/docs/customize/blueprints/?utm_source=authentik#storage---oci",
+                                          "/developer-docs/blueprints/?utm_source=authentik#storage---oci",
                                       )}"
                                       >${msg("Documentation")}</a
                                   >
@@ -167,7 +214,7 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
                     ${this.source === blueprintSource.internal
                         ? html`<ak-form-element-horizontal label=${msg("Blueprint")} name="content">
                               <ak-codemirror
-                                  mode=${CodeMirrorMode.YAML}
+                                  mode="yaml"
                                   .parseValue=${false}
                                   value="${ifDefined(this.instance?.content)}"
                               ></ak-codemirror>
@@ -181,8 +228,8 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
                 <div slot="body" class="pf-c-form">
                     <ak-form-element-horizontal label=${msg("Context")} name="context">
                         <ak-codemirror
-                            mode=${CodeMirrorMode.YAML}
-                            value="${YAML.stringify(this.instance?.context ?? {})}"
+                            mode="yaml"
+                            value="${YAML.stringify(first(this.instance?.context, {}))}"
                         >
                         </ak-codemirror>
                         <p class="pf-c-form__helper-text">
@@ -190,12 +237,7 @@ export class BlueprintForm extends ModelForm<BlueprintInstance, string> {
                         </p>
                     </ak-form-element-horizontal>
                 </div>
-            </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-blueprint-form": BlueprintForm;
+            </ak-form-group>
+        </form>`;
     }
 }

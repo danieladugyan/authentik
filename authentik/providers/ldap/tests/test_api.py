@@ -1,5 +1,4 @@
 """LDAP Provider API tests"""
-
 from json import loads
 
 from django.urls import reverse

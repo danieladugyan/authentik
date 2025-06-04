@@ -1,5 +1,4 @@
 """Test token auth"""
-
 from django.test import TestCase
 
 from authentik.core.auth import TokenBackend

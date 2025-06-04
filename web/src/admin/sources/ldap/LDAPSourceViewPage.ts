@@ -1,18 +1,15 @@
-import "@goauthentik/admin/rbac/ObjectPermissionsPage";
-import "@goauthentik/admin/sources/ldap/LDAPSourceConnectivity";
 import "@goauthentik/admin/sources/ldap/LDAPSourceForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import { EVENT_REFRESH } from "@goauthentik/common/constants";
-import "@goauthentik/components/events/ObjectChangelog";
 import { AKElement } from "@goauthentik/elements/Base";
 import "@goauthentik/elements/CodeMirror";
 import "@goauthentik/elements/Tabs";
 import "@goauthentik/elements/buttons/ActionButton";
 import "@goauthentik/elements/buttons/SpinnerButton";
+import "@goauthentik/elements/events/ObjectChangelog";
 import "@goauthentik/elements/forms/ModalForm";
-import "@goauthentik/elements/sync/SyncStatusCard";
 
-import { msg } from "@lit/localize";
+import { msg, str } from "@lit/localize";
 import { CSSResult, TemplateResult, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 
@@ -25,12 +22,7 @@ import PFPage from "@patternfly/patternfly/components/Page/page.css";
 import PFGrid from "@patternfly/patternfly/layouts/Grid/grid.css";
 import PFBase from "@patternfly/patternfly/patternfly-base.css";
 
-import {
-    LDAPSource,
-    RbacPermissionsAssignedByUsersListModelEnum,
-    SourcesApi,
-    SyncStatus,
-} from "@goauthentik/api";
+import { LDAPSource, SourcesApi, Task, TaskStatusEnum } from "@goauthentik/api";
 
 @customElement("ak-source-ldap-view")
 export class LDAPSourceViewPage extends AKElement {
@@ -49,7 +41,7 @@ export class LDAPSourceViewPage extends AKElement {
     source!: LDAPSource;
 
     @state()
-    syncState?: SyncStatus;
+    syncState: Task[] = [];
 
     static get styles(): CSSResult[] {
         return [PFBase, PFPage, PFButton, PFGrid, PFContent, PFCard, PFDescriptionList, PFList];
@@ -63,16 +55,6 @@ export class LDAPSourceViewPage extends AKElement {
         });
     }
 
-    load(): void {
-        new SourcesApi(DEFAULT_CONFIG)
-            .sourcesLdapSyncStatusRetrieve({
-                slug: this.source.slug,
-            })
-            .then((state) => {
-                this.syncState = state;
-            });
-    }
-
     render(): TemplateResult {
         if (!this.source) {
             return html``;
@@ -83,7 +65,13 @@ export class LDAPSourceViewPage extends AKElement {
                 data-tab-title="${msg("Overview")}"
                 class="pf-c-page__main-section pf-m-no-padding-mobile"
                 @activate=${() => {
-                    this.load();
+                    new SourcesApi(DEFAULT_CONFIG)
+                        .sourcesLdapSyncStatusList({
+                            slug: this.source.slug,
+                        })
+                        .then((state) => {
+                            this.syncState = state;
+                        });
                 }}
             >
                 <div class="pf-l-grid pf-m-gutter">
@@ -142,32 +130,61 @@ export class LDAPSourceViewPage extends AKElement {
                             </ak-forms-modal>
                         </div>
                     </div>
-                    <div class="pf-c-card pf-l-grid__item pf-m-2-col">
+                    <div class="pf-c-card pf-l-grid__item pf-m-12-col">
                         <div class="pf-c-card__title">
-                            <p>${msg("Connectivity")}</p>
+                            <p>${msg("Sync status")}</p>
                         </div>
                         <div class="pf-c-card__body">
-                            <ak-source-ldap-connectivity
-                                .connectivity=${this.source.connectivity}
-                            ></ak-source-ldap-connectivity>
+                            ${this.syncState.length < 1
+                                ? html`<p>${msg("Not synced yet.")}</p>`
+                                : html`
+                                      <ul class="pf-c-list">
+                                          ${this.syncState.map((task) => {
+                                              let header = "";
+                                              if (task.status === TaskStatusEnum.Warning) {
+                                                  header = msg("Task finished with warnings");
+                                              } else if (task.status === TaskStatusEnum.Error) {
+                                                  header = msg("Task finished with errors");
+                                              } else {
+                                                  header = msg(
+                                                      str`Last sync: ${task.taskFinishTimestamp.toLocaleString()}`,
+                                                  );
+                                              }
+                                              return html`<li>
+                                                  <p>${task.taskName}</p>
+                                                  <ul class="pf-c-list">
+                                                      <li>${header}</li>
+                                                      ${task.messages.map((m) => {
+                                                          return html`<li>${m}</li>`;
+                                                      })}
+                                                  </ul>
+                                              </li> `;
+                                          })}
+                                      </ul>
+                                  `}
                         </div>
-                    </div>
-                    <div class="pf-l-grid__item pf-m-10-col">
-                        <ak-sync-status-card
-                            .fetch=${() => {
-                                return new SourcesApi(DEFAULT_CONFIG).sourcesLdapSyncStatusRetrieve(
-                                    {
-                                        slug: this.source?.slug,
-                                    },
-                                );
-                            }}
-                            .triggerSync=${() => {
-                                return new SourcesApi(DEFAULT_CONFIG).sourcesLdapPartialUpdate({
-                                    slug: this.source?.slug || "",
-                                    patchedLDAPSourceRequest: {},
-                                });
-                            }}
-                        ></ak-sync-status-card>
+                        <div class="pf-c-card__footer">
+                            <ak-action-button
+                                class="pf-m-secondary"
+                                .apiRequest=${() => {
+                                    return new SourcesApi(DEFAULT_CONFIG)
+                                        .sourcesLdapPartialUpdate({
+                                            slug: this.source?.slug || "",
+                                            patchedLDAPSourceRequest: this.source,
+                                        })
+                                        .then(() => {
+                                            this.dispatchEvent(
+                                                new CustomEvent(EVENT_REFRESH, {
+                                                    bubbles: true,
+                                                    composed: true,
+                                                }),
+                                            );
+                                        });
+                                }}
+                            >
+                                ${msg("Run sync again")}
+                            </ak-action-button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -189,18 +206,6 @@ export class LDAPSourceViewPage extends AKElement {
                     </div>
                 </div>
             </section>
-            <ak-rbac-object-permission-page
-                slot="page-permissions"
-                data-tab-title="${msg("Permissions")}"
-                model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikSourcesLdapLdapsource}
-                objectPk=${this.source.pk}
-            ></ak-rbac-object-permission-page>
         </ak-tabs>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-source-ldap-view": LDAPSourceViewPage;
     }
 }

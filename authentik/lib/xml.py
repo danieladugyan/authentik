@@ -1,5 +1,4 @@
 """XML Utilities"""
-
 from lxml.etree import XMLParser, fromstring  # nosec
 
 

@@ -1,5 +1,4 @@
 """authentik OAuth2 Token Introspection Views"""
-
 from dataclasses import dataclass, field
 
 from django.http import HttpRequest, HttpResponse
@@ -46,10 +45,10 @@ class TokenIntrospectionParams:
         if not provider:
             raise TokenIntrospectionError
 
-        access_token = AccessToken.objects.filter(token=raw_token, provider=provider).first()
+        access_token = AccessToken.objects.filter(token=raw_token).first()
         if access_token:
             return TokenIntrospectionParams(access_token, provider)
-        refresh_token = RefreshToken.objects.filter(token=raw_token, provider=provider).first()
+        refresh_token = RefreshToken.objects.filter(token=raw_token).first()
         if refresh_token:
             return TokenIntrospectionParams(refresh_token, provider)
         LOGGER.debug("Token does not exist", token=raw_token)

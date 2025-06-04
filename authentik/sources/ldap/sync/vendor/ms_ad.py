@@ -1,9 +1,9 @@
 """Active Directory specific"""
-
-from collections.abc import Generator
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import IntFlag
-from typing import Any
+from typing import Any, Generator
+
+from pytz import UTC
 
 from authentik.core.models import User
 from authentik.sources.ldap.sync.base import BaseLDAPSynchronizer
@@ -78,9 +78,5 @@ class MicrosoftActiveDirectory(BaseLDAPSynchronizer):
         #   /useraccountcontrol-manipulate-account-properties
         uac_bit = attributes.get("userAccountControl", 512)
         uac = UserAccountControl(uac_bit)
-        is_active = (
-            UserAccountControl.ACCOUNTDISABLE not in uac and UserAccountControl.LOCKOUT not in uac
-        )
-        if is_active != user.is_active:
-            user.is_active = is_active
-            user.save()
+        user.is_active = UserAccountControl.ACCOUNTDISABLE not in uac
+        user.save()

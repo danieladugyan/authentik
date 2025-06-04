@@ -1,5 +1,4 @@
 """authentik radius provider app config"""
-
 from django.apps import AppConfig
 
 

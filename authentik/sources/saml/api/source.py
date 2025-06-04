@@ -1,5 +1,4 @@
 """SAMLSource API Views"""
-
 from django.urls import reverse
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
@@ -20,7 +19,6 @@ class SAMLSourceSerializer(SourceSerializer):
     class Meta:
         model = SAMLSource
         fields = SourceSerializer.Meta.fields + [
-            "group_matching_mode",
             "pre_authentication_flow",
             "issuer",
             "sso_url",
@@ -33,7 +31,6 @@ class SAMLSourceSerializer(SourceSerializer):
             "digest_algorithm",
             "signature_algorithm",
             "temporary_user_delete_after",
-            "encryption_kp",
         ]
 
 
@@ -44,7 +41,6 @@ class SAMLSourceViewSet(UsedByMixin, ModelViewSet):
     serializer_class = SAMLSourceSerializer
     lookup_field = "slug"
     filterset_fields = [
-        "pbm_uuid",
         "name",
         "slug",
         "enabled",
