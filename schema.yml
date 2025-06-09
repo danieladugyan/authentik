@@ -4811,6 +4811,11 @@ paths:
           type: string
         description: Attributes
       - in: query
+        name: include_children
+        schema:
+          type: boolean
+          default: true
+      - in: query
         name: include_users
         schema:
           type: boolean
@@ -4932,6 +4937,11 @@ paths:
           format: uuid
         description: A UUID string identifying this Group.
         required: true
+      - in: query
+        name: include_children
+        schema:
+          type: boolean
+          default: true
       - in: query
         name: include_users
         schema:
@@ -46218,6 +46228,7 @@ components:
           items:
             $ref: '#/components/schemas/GroupChild'
           readOnly: true
+          nullable: true
       required:
       - children_obj
       - name
@@ -46251,21 +46262,6 @@ components:
       - group_uuid
       - name
       - pk
-    GroupChildRequest:
-      type: object
-      description: Stripped down group serializer to show relevant children for groups
-      properties:
-        name:
-          type: string
-          minLength: 1
-        is_superuser:
-          type: boolean
-          description: Users added to this group will be superusers.
-        attributes:
-          type: object
-          additionalProperties: {}
-      required:
-      - name
     GroupKerberosSourceConnection:
       type: object
       description: Group Source Connection
